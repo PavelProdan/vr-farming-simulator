@@ -52,13 +52,13 @@ int main(void)
 
 
     // Load GLB model
-    Model myModel = LoadModel("humans/walking_character.glb");  // Change path to your model file
+    Model myModel = LoadModel("animals/idle_pig.glb");  // Change path to your model file
     ModelAnimation* animations = NULL;
     unsigned int animCount = 0;
     int animFrameCounter = 0;
     int currentAnimation = 0;
     // Load animations from the same file
-    animations = LoadModelAnimations("humans/walking_character.glb", &animCount);
+    animations = LoadModelAnimations("animals/idle_pig.glb", &animCount);
     if (animCount > 0) {
         TraceLog(LOG_INFO, "Model has %d animations", animCount);
     } else {
@@ -238,6 +238,11 @@ DrawModelEx(myModel,
     UnloadTexture(terrainTexture);
     UnloadModel(terrainModel);
     UnloadModel(myModel);
+    // Unload animations if any were loaded
+if (animations != NULL && animCount > 0) {
+    UnloadModelAnimations(animations, animCount);
+}
+
     //--------------------------------------------------------------------------------------
     CloseWindow(); // Close window and OpenGL context
     //--------------------------------------------------------------------------------------
