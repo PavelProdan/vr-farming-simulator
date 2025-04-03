@@ -1,7 +1,8 @@
 #include "raylib.h"
 #include "rcamera.h"
 #include "resource_dir.h"
-
+#include "math.h"
+#include <stdlib.h>
 #define MAX_COLUMNS 20
 
 int main(void)
@@ -9,7 +10,7 @@ int main(void)
     const int screenWidth = 1920;
     const int screenHeight = 1080;
 
-    InitWindow(screenWidth, screenHeight, "raylib [core] example - 3d camera with terrain");
+    InitWindow(screenWidth, screenHeight, "VR Farming Simulator");
 
     // Define the camera
     Camera camera = {0};
@@ -49,6 +50,33 @@ int main(void)
     // Add this at the end of your initialization and before the game loop
     SetMaterialTexture(&terrainModel.materials[0], MATERIAL_MAP_DIFFUSE, terrainTexture);
 
+
+    // Load GLB model
+    Model myModel = LoadModel("humans/walking_character.glb");  // Change path to your model file
+    ModelAnimation* animations = NULL;
+    unsigned int animCount = 0;
+    int animFrameCounter = 0;
+    int currentAnimation = 0;
+    // Load animations from the same file
+    animations = LoadModelAnimations("humans/walking_character.glb", &animCount);
+    if (animCount > 0) {
+        TraceLog(LOG_INFO, "Model has %d animations", animCount);
+    } else {
+        TraceLog(LOG_WARNING, "Model has no animations");
+    }// Horse movement variables
+Vector3 modelPosition = (Vector3){ 0.0f, 0.0f, 0.0f };  // Position in world
+float modelScale = 1.0f;                               // Adjust scale as needed
+Vector3 moveDirection = (Vector3){ 0.0f, 0.0f, 0.0f }; // Movement direction
+float moveSpeed = 0.01f;                              // Movement speed
+float moveTimer = 0.0f;                               // Timer for direction changes
+float moveInterval = 3.0f;                            // Seconds between direction changes
+bool isMoving = false;                                // Whether horse is moving
+float rotationAngle = 0.0f;                           // Rotation angle for the model
+
+
+
+// Adjust scale as needed
+
     // Generate random columns (your existing code)
     float heights[MAX_COLUMNS] = {0};
     Vector3 positions[MAX_COLUMNS] = {0};
@@ -74,14 +102,54 @@ int main(void)
         if (IsKeyPressed(KEY_THREE))
             cameraMode = CAMERA_THIRD_PERSON;
         if (IsKeyPressed(KEY_FOUR))
-            cameraMode = CAMERA_ORBITAL;
-
-        // Update camera projection (your existing code remains the same)
-        if (IsKeyPressed(KEY_P))
-        { /* ... */
-        }
+            cameraMode = CAMERA_ORBITAL;      
 
         UpdateCamera(&camera, cameraMode);
+
+        // movement for the horse
+        // Update horse movement
+moveTimer += GetFrameTime();
+        
+// Change direction or state every few seconds
+if (moveTimer >= moveInterval) {
+    moveTimer = 0.0f;
+    
+    // 70% chance to move, 30% chance to stay idle
+    if (GetRandomValue(0, 100) < 70) {
+        isMoving = true;
+        // Random direction in X and Z (keep Y at 0 for ground movement)
+        moveDirection.x = GetRandomValue(-10, 10) / 10.0f;
+        moveDirection.z = GetRandomValue(-10, 10) / 10.0f;
+        
+        // Normalize direction
+        float length = sqrtf(moveDirection.x*moveDirection.x + moveDirection.z*moveDirection.z);
+        if (length > 0) {
+            moveDirection.x /= length;
+            moveDirection.z /= length;
+            
+            // Calculate rotation angle based on direction
+            rotationAngle = atan2f(moveDirection.x, moveDirection.z) * RAD2DEG;
+        }
+    } else {
+        isMoving = false;
+    }
+    
+    // Randomize next interval (1-3 seconds)
+    moveInterval = 1.0f + GetRandomValue(0, 20) / 10.0f;
+}
+
+// Update position if moving
+if (isMoving) {
+    modelPosition.x += moveDirection.x * moveSpeed;
+    modelPosition.z += moveDirection.z * moveSpeed;
+    
+    // Keep within boundaries (adjust based on your terrain size)
+    if (modelPosition.x < -15.0f) modelPosition.x = -15.0f;
+    if (modelPosition.x > 15.0f) modelPosition.x = 15.0f;
+    if (modelPosition.z < -15.0f) modelPosition.z = -15.0f;
+    if (modelPosition.z > 15.0f) modelPosition.z = 15.0f;
+}
+
 
         // Draw
         BeginDrawing();
@@ -96,6 +164,28 @@ int main(void)
         DrawCube((Vector3){-16.0f, 2.5f, 0.0f}, 1.0f, 5.0f, 32.0f, BLUE); // Draw a blue wall
         DrawCube((Vector3){16.0f, 2.5f, 0.0f}, 1.0f, 5.0f, 32.0f, LIME);  // Draw a green wall
         DrawCube((Vector3){0.0f, 2.5f, 16.0f}, 32.0f, 5.0f, 1.0f, GOLD);  // Draw a yellow wall
+
+        // Update animation
+if (animCount > 0) {
+    // Update animation frame counter
+    animFrameCounter++;
+    
+    // Update model animation
+    UpdateModelAnimation(myModel, animations[currentAnimation], animFrameCounter);
+    
+    // Loop animation when it reaches the end
+    if (animFrameCounter >= animations[currentAnimation].frameCount) {
+        animFrameCounter = 0;
+    }
+}
+
+// Draw the horse model with rotation
+DrawModelEx(myModel, 
+    modelPosition, 
+    (Vector3){0.0f, 1.0f, 0.0f},  // Rotation axis (Y-axis)
+    rotationAngle,                // Rotation angle
+    (Vector3){modelScale, modelScale, modelScale}, 
+    WHITE);
 
         // Draw some cubes around
         for (int i = 0; i < MAX_COLUMNS; i++)
@@ -147,6 +237,7 @@ int main(void)
     // De-Initialization
     UnloadTexture(terrainTexture);
     UnloadModel(terrainModel);
+    UnloadModel(myModel);
     //--------------------------------------------------------------------------------------
     CloseWindow(); // Close window and OpenGL context
     //--------------------------------------------------------------------------------------
