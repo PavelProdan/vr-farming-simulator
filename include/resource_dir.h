@@ -90,6 +90,15 @@ extern "C" {            // Prevents name mangling of functions
         return false;
     }
 
+    /// <summary>
+    /// Returns the current resource directory path
+    /// </summary>
+    /// <returns>The current resource directory path</returns>
+    inline static const char* GetResourceDir(void)
+    {
+        return GetWorkingDirectory();
+    }
+
 #if defined(__cplusplus)
 }
 #endif
