@@ -8,14 +8,28 @@
 #include <stdio.h>
 #define MAX_COLUMNS 20
 #define MAX_ANIMALS 100
-#define MAX_TERRAIN_CHUNKS 9   // 3x3 grid of chunks
-#define CHUNK_SIZE 64.0f      // Size of each terrain chunk
-#define CAMERA_MOVE_SPEED 0.2f // Camera movement speed
+#define MAX_BUILDINGS 2  // For barn and horse barn
+#define FIXED_TERRAIN_SIZE 512.0f      // Total terrain size
+#define TERRAIN_CHUNKS_PER_SIDE 5      // 5x5 grid of terrain chunks
+#define CHUNK_SIZE (FIXED_TERRAIN_SIZE / TERRAIN_CHUNKS_PER_SIDE)  // Size of each terrain chunk
+#define MAX_TERRAIN_CHUNKS (TERRAIN_CHUNKS_PER_SIDE * TERRAIN_CHUNKS_PER_SIDE)  // Total number of chunks
+#define CAMERA_MOVE_SPEED 0.08f // Reduced for walking simulator feel
+#define HUMAN_HEIGHT 1.75f     // Average human height in meters
+#define FOG_DENSITY 0.02f      // Fog density for distance effect
+#define FOG_COLOR (Color){ 200, 225, 255, 255 }  // Light blue fog
 
 // Define LIGHTGREEN color if it's not defined in raylib
 #ifndef LIGHTGREEN
     #define LIGHTGREEN (Color){ 200, 255, 200, 255 }
 #endif
+
+// Building structure
+typedef struct {
+    Model model;
+    Vector3 position;
+    float scale;
+    float rotationAngle;
+} Building;
 
 // Terrain chunk structure
 typedef struct {
@@ -48,12 +62,14 @@ typedef struct {
     int animFrameCounter;
     
     Vector3 position;
+    Vector3 spawnPosition;   // Original spawn position to return to
     Vector3 direction;
     float scale;
     float speed;
     float rotationAngle;
     float moveTimer;
     float moveInterval;
+    float maxWanderDistance; // Maximum distance from spawn point
     bool isMoving;
     bool active;
 } Animal;
@@ -63,6 +79,9 @@ Animal animals[MAX_ANIMALS];
 int animalCount = 0;
 int animalCountByType[ANIMAL_COUNT] = {0};
 
+// Global array of buildings
+Building buildings[MAX_BUILDINGS];
+
 // Global array of terrain chunks
 TerrainChunk terrainChunks[MAX_TERRAIN_CHUNKS];
 
@@ -70,13 +89,15 @@ TerrainChunk terrainChunks[MAX_TERRAIN_CHUNKS];
 void InitAnimal(Animal* animal, AnimalType type, Vector3 position) {
     animal->type = type;
     animal->position = position;
-    animal->direction = (Vector3){0.0f, 0.0f, 0.0f};
+    animal->spawnPosition = position;  // Store original spawn position
+    animal->direction = (Vector3){0.0f, 0.0f, 1.0f};  // Default direction
     animal->animFrameCounter = 0;
     animal->moveTimer = 0.0f;
-    animal->moveInterval = 1.0f + GetRandomValue(0, 20) / 10.0f; // 1-3 seconds
+    animal->moveInterval = 1.5f + GetRandomValue(0, 20) / 10.0f; // 1.5-3.5 seconds between decisions
     animal->isMoving = false;
     animal->rotationAngle = 0.0f;
     animal->active = true;
+    animal->maxWanderDistance = 15.0f + GetRandomValue(0, 50) / 10.0f; // Each animal has a territory of 15-20 units
     
     // Set type-specific properties
     switch(type) {
@@ -86,39 +107,39 @@ void InitAnimal(Animal* animal, AnimalType type, Vector3 position) {
             animal->walkingAnim = LoadModelAnimations("animals/walking_horse.glb", &animal->walkingAnimCount);
             animal->idleAnim = LoadModelAnimations("animals/idle_horse.glb", &animal->idleAnimCount);
             animal->scale = 1.0f;
-            animal->speed = 0.02f;
+            animal->speed = 0.015f; // Reduced speed
             break;
         case ANIMAL_CAT:
             animal->walkingModel = LoadModel("animals/walking_cat.glb");
             animal->idleModel = LoadModel("animals/idle_cat.glb");
             animal->walkingAnim = LoadModelAnimations("animals/walking_cat.glb", &animal->walkingAnimCount);
             animal->idleAnim = LoadModelAnimations("animals/idle_cat.glb", &animal->idleAnimCount);
-            animal->scale = 0.5f;
-            animal->speed = 0.03f;
+            animal->scale = 0.9f;
+            animal->speed = 0.02f;  // Reduced speed
             break;
         case ANIMAL_DOG:
             animal->walkingModel = LoadModel("animals/walking_dog.glb");
             animal->idleModel = LoadModel("animals/idle_dog.glb");
             animal->walkingAnim = LoadModelAnimations("animals/walking_dog.glb", &animal->walkingAnimCount);
             animal->idleAnim = LoadModelAnimations("animals/idle_dog.glb", &animal->idleAnimCount);
-            animal->scale = 0.7f;
-            animal->speed = 0.025f;
+            animal->scale = 0.8f;
+            animal->speed = 0.018f; // Reduced speed
             break;
         case ANIMAL_COW:
             animal->walkingModel = LoadModel("animals/walking_cow.glb");
             animal->idleModel = LoadModel("animals/idle_cow.glb");
             animal->walkingAnim = LoadModelAnimations("animals/walking_cow.glb", &animal->walkingAnimCount);
             animal->idleAnim = LoadModelAnimations("animals/idle_cow.glb", &animal->idleAnimCount);
-            animal->scale = 0.12f;  // Reduced from 1.2f by 10x
-            animal->speed = 0.015f;
+            animal->scale = 0.27f;  // Reduced from 1.2f by 10x
+            animal->speed = 0.01f;  // Reduced speed
             break;
         case ANIMAL_CHICKEN:
             animal->walkingModel = LoadModel("animals/walking_chicken.glb");
             animal->idleModel = LoadModel("animals/idle_chicken.glb");
             animal->walkingAnim = LoadModelAnimations("animals/walking_chicken.glb", &animal->walkingAnimCount);
             animal->idleAnim = LoadModelAnimations("animals/idle_chicken.glb", &animal->idleAnimCount);
-            animal->scale = 0.4f;
-            animal->speed = 0.02f;
+            animal->scale = 1.0f;
+            animal->speed = 0.006f; // Reduced speed
             break;
         case ANIMAL_PIG:
             animal->walkingModel = LoadModel("animals/walking_pig.glb");
@@ -126,7 +147,7 @@ void InitAnimal(Animal* animal, AnimalType type, Vector3 position) {
             animal->walkingAnim = LoadModelAnimations("animals/walking_pig.glb", &animal->walkingAnimCount);
             animal->idleAnim = LoadModelAnimations("animals/idle_pig.glb", &animal->idleAnimCount);
             animal->scale = 0.16f;  // Reduced from 0.8f by 5x
-            animal->speed = 0.018f;
+            animal->speed = 0.011f; // Reduced speed
             break;
         case ANIMAL_COUNT:
         default:
@@ -171,25 +192,44 @@ void UpdateAnimal(Animal* animal, float terrainSize) {
         if (GetRandomValue(0, 100) < 70) {
             animal->isMoving = true;
             
-            // Random direction in X and Z (keep Y at 0 for ground movement)
-            animal->direction.x = GetRandomValue(-10, 10) / 10.0f;
-            animal->direction.z = GetRandomValue(-10, 10) / 10.0f;
+            // Calculate distance from spawn point
+            float distanceFromSpawn = Vector3Distance(animal->position, animal->spawnPosition);
             
-            // Normalize direction
-            float length = sqrtf(animal->direction.x * animal->direction.x + animal->direction.z * animal->direction.z);
-            if (length > 0) {
-                animal->direction.x /= length;
-                animal->direction.z /= length;
-                
-                // Calculate rotation angle based on direction
-                animal->rotationAngle = atan2f(animal->direction.x, animal->direction.z) * RAD2DEG;
+            // 80% chance to move forward in current direction or toward spawn if too far away
+            if (GetRandomValue(0, 100) < 80 || distanceFromSpawn > animal->maxWanderDistance) {
+                if (distanceFromSpawn > animal->maxWanderDistance * 0.7f) {
+                    // If animal is getting far from spawn, steer back toward spawn point
+                    Vector3 toSpawn = Vector3Subtract(animal->spawnPosition, animal->position);
+                    float len = sqrtf(toSpawn.x * toSpawn.x + toSpawn.z * toSpawn.z);
+                    if (len > 0) {
+                        animal->direction.x = toSpawn.x / len;
+                        animal->direction.z = toSpawn.z / len;
+                    }
+                } else {
+                    // Small random adjustment to current direction (continue forward with slight variation)
+                    float turnAmount = GetRandomValue(-10, 10) / 100.0f; // Small direction change (-0.1 to 0.1)
+                    float currentAngle = atan2f(animal->direction.x, animal->direction.z);
+                    float newAngle = currentAngle + turnAmount;
+                    animal->direction.x = sinf(newAngle);
+                    animal->direction.z = cosf(newAngle);
+                }
+            } else {
+                // 20% chance to make a significant direction change
+                float turnAngle = GetRandomValue(-90, 90) * DEG2RAD;
+                float currentAngle = atan2f(animal->direction.x, animal->direction.z);
+                float newAngle = currentAngle + turnAngle;
+                animal->direction.x = sinf(newAngle);
+                animal->direction.z = cosf(newAngle);
             }
+            
+            // Calculate rotation angle based on direction
+            animal->rotationAngle = atan2f(animal->direction.x, animal->direction.z) * RAD2DEG;
         } else {
             animal->isMoving = false;
         }
         
-        // Randomize next interval (1-3 seconds)
-        animal->moveInterval = 1.0f + GetRandomValue(0, 20) / 10.0f;
+        // Randomize next interval (slightly longer when idle to make movement more natural)
+        animal->moveInterval = (animal->isMoving ? 1.0f : 2.0f) + GetRandomValue(0, 20) / 10.0f;
     }
     
     // Update position if animal is moving
@@ -378,26 +418,31 @@ void InitTerrainChunk(TerrainChunk* chunk, Vector2 position, Texture2D terrainTe
     SetMaterialTexture(&chunk->model.materials[0], MATERIAL_MAP_DIFFUSE, terrainTexture);
 }
 
-// Function to update terrain chunks around the player
-void UpdateTerrainChunks(Vector3 playerPosition, Texture2D terrainTexture) {
-    Vector2 playerChunkPos = { floorf(playerPosition.x / CHUNK_SIZE), floorf(playerPosition.z / CHUNK_SIZE) };
-
-    int chunkIndex = 0;
-    for (int z = -1; z <= 1; z++) {
-        for (int x = -1; x <= 1; x++) {
-            Vector2 chunkPos = { playerChunkPos.x + x, playerChunkPos.y + z };
-            terrainChunks[chunkIndex].position = chunkPos;
-            terrainChunks[chunkIndex].worldPos = (Vector3){ chunkPos.x * CHUNK_SIZE, 0.0f, chunkPos.y * CHUNK_SIZE };
-            if (!terrainChunks[chunkIndex].active) {
-                InitTerrainChunk(&terrainChunks[chunkIndex], chunkPos, terrainTexture);
-            }
-            chunkIndex++;
+// Function to initialize all terrain chunks in a fixed grid
+void InitAllTerrainChunks(Texture2D terrainTexture) {
+    int index = 0;
+    for (int z = 0; z < TERRAIN_CHUNKS_PER_SIDE; z++) {
+        for (int x = 0; x < TERRAIN_CHUNKS_PER_SIDE; x++) {
+            Vector2 chunkPos = { x - TERRAIN_CHUNKS_PER_SIDE/2.0f, z - TERRAIN_CHUNKS_PER_SIDE/2.0f };
+            InitTerrainChunk(&terrainChunks[index], chunkPos, terrainTexture);
+            index++;
         }
     }
 }
 
-// Function to draw terrain chunks
+// Function to update terrain chunks - simplified to just check boundaries
+void UpdateTerrainChunks(Vector3 playerPosition, Texture2D terrainTexture) {
+    // Restrict player movement within terrain bounds
+    float boundary = FIXED_TERRAIN_SIZE/2.0f - 5.0f;
+    if (playerPosition.x < -boundary) playerPosition.x = -boundary;
+    if (playerPosition.x > boundary) playerPosition.x = boundary;
+    if (playerPosition.z < -boundary) playerPosition.z = -boundary;
+    if (playerPosition.z > boundary) playerPosition.z = boundary;
+}
+
+// Function to draw terrain chunks with fog effect
 void DrawTerrainChunks(void) {
+    // Draw terrain chunks without using BeginShaderMode
     for (int i = 0; i < MAX_TERRAIN_CHUNKS; i++) {
         if (terrainChunks[i].active) {
             DrawModel(terrainChunks[i].model, terrainChunks[i].worldPos, 1.0f, WHITE);
@@ -469,13 +514,13 @@ int main(void)
 
     // Define the camera
     Camera camera = {0};
-    camera.position = (Vector3){0.0f, 5.0f, 10.0f}; // Raise camera slightly
-    camera.target = (Vector3){0.0f, 0.0f, 0.0f};
+    camera.position = (Vector3){0.0f, HUMAN_HEIGHT, 0.0f}; // Set camera at human height
+    camera.target = (Vector3){0.0f, HUMAN_HEIGHT, 1.0f};   // Look forward
     camera.up = (Vector3){0.0f, 1.0f, 0.0f};
     camera.fovy = 60.0f;
     camera.projection = CAMERA_PERSPECTIVE;
 
-    int cameraMode = CAMERA_FIRST_PERSON;
+    int cameraMode = CAMERA_FIRST_PERSON; // Default to first person
 
     // Update the texture loading part of your code
     SearchAndSetResourceDir("resources");
@@ -486,12 +531,9 @@ int main(void)
     SetTextureFilter(terrainTexture, TEXTURE_FILTER_ANISOTROPIC_16X);
     SetTextureWrap(terrainTexture, TEXTURE_WRAP_REPEAT);
 
-    // Initialize terrain chunks
-    for (int i = 0; i < MAX_TERRAIN_CHUNKS; i++) {
-        terrainChunks[i].active = false;
-    }
-    UpdateTerrainChunks(camera.position, terrainTexture);
-
+    // Initialize all terrain chunks at once with fixed layout
+    InitAllTerrainChunks(terrainTexture);
+    
     // Initialize the animals array
     for (int i = 0; i < MAX_ANIMALS; i++) {
         animals[i].active = false;
@@ -502,6 +544,16 @@ int main(void)
     Texture2D skyboxTexture = LoadTexture(TextFormat("%s/sky/BlueSkySkybox.png", GetResourceDir()));
     skybox.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = skyboxTexture;
     
+    // Set up basic fog effect for distance
+    float fogDensity = FOG_DENSITY;
+    Color fogColor = FOG_COLOR;
+    
+    // Simple fog setup that's compatible with most raylib versions
+    SetShaderValue(skybox.materials[0].shader, GetShaderLocation(skybox.materials[0].shader, "fogDensity"), 
+                  &fogDensity, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(skybox.materials[0].shader, GetShaderLocation(skybox.materials[0].shader, "fogColor"), 
+                  &fogColor, SHADER_UNIFORM_VEC4);
+
     // Pre-spawn some animals
     Vector3 horsePosition = { 5.0f, 0.0f, 5.0f };
     SpawnAnimal(ANIMAL_HORSE, horsePosition, CHUNK_SIZE);
@@ -521,6 +573,17 @@ int main(void)
     Vector3 chickenPosition = { 0.0f, 0.0f, -8.0f };
     SpawnAnimal(ANIMAL_CHICKEN, chickenPosition, CHUNK_SIZE);
 
+    // Load building models
+    buildings[0].model = LoadModel("buildings/barn.glb");
+    buildings[0].position = (Vector3){ -10.0f, 0.0f, -10.0f };
+    buildings[0].scale = 0.05f;
+    buildings[0].rotationAngle = 45.0f;
+
+    buildings[1].model = LoadModel("buildings/horse_barn.glb");
+    buildings[1].position = (Vector3){ 10.0f, 0.0f, 10.0f };
+    buildings[1].scale = 0.5f;
+    buildings[1].rotationAngle = 135.0f;
+
     // Generate random columns for visualization
     float heights[MAX_COLUMNS] = {0};
     Vector3 positions[MAX_COLUMNS] = {0};
@@ -534,7 +597,7 @@ int main(void)
     }
 
     DisableCursor();
-    SetTargetFPS(90);
+    SetTargetFPS(60);
 
     while (!WindowShouldClose())
     {
@@ -596,11 +659,17 @@ int main(void)
         // Draw all animals
         DrawAnimals();
 
-        // Draw decorative columns
-        for (int i = 0; i < MAX_COLUMNS; i++)
+        // Draw buildings
+        for (int i = 0; i < MAX_BUILDINGS; i++)
         {
-            DrawCube(positions[i], 2.0f, heights[i], 2.0f, colors[i]);
-            DrawCubeWires(positions[i], 2.0f, heights[i], 2.0f, MAROON);
+            DrawModelEx(
+                buildings[i].model, 
+                buildings[i].position, 
+                (Vector3){0.0f, 1.0f, 0.0f},  // Rotation axis (Y-axis)
+                buildings[i].rotationAngle,   // Rotation angle
+                (Vector3){buildings[i].scale, buildings[i].scale, buildings[i].scale}, 
+                WHITE
+            );
         }
 
         // Draw player cube in third-person mode
@@ -693,6 +762,11 @@ int main(void)
         if (terrainChunks[i].active) {
             UnloadModel(terrainChunks[i].model);
         }
+    }
+    
+    // Unload building models
+    for (int i = 0; i < MAX_BUILDINGS; i++) {
+        UnloadModel(buildings[i].model);
     }
 
     CloseWindow();
