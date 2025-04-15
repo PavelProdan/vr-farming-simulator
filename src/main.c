@@ -10,6 +10,13 @@
 #define MAX_COLUMNS 20
 #define MAX_ANIMALS 100
 #define MAX_BUILDINGS 2  // For barn and horse barn
+#define MAX_CLOUDS 5000   // Increased number of clouds
+#define MAX_CLOUD_TYPES 1 // Number of different cloud types/textures
+#define CLOUD_LAYER_HEIGHT 120.0f  // Height for all clouds
+#define CLOUD_COVERAGE_RADIUS 1500.0f // Expanded cloud coverage for more distant clouds
+#define CLOUD_MIN_SIZE 2.0f  // Smaller minimum cloud size
+#define CLOUD_MAX_SIZE 8.0f // Smaller maximum cloud size
+#define CLOUD_VIEW_DISTANCE 800.0f // Increased view distance for clouds
 #define FIXED_TERRAIN_SIZE 512.0f      // Total terrain size
 #define TERRAIN_CHUNKS_PER_SIDE 5      // 5x5 grid of terrain chunks
 #define CHUNK_SIZE (FIXED_TERRAIN_SIZE / TERRAIN_CHUNKS_PER_SIDE)  // Size of each terrain chunk
@@ -18,6 +25,7 @@
 #define HUMAN_HEIGHT 1.75f     // Average human height in meters
 #define FOG_DENSITY 0.02f      // Fog density for distance effect
 #define FOG_COLOR (Color){ 200, 225, 255, 255 }  // Light blue fog
+#define SKY_COLOR (Color){ 135, 206, 235, 255 }  // Light blue sky color
 
 // Define LIGHTGREEN color if it's not defined in raylib
 #ifndef LIGHTGREEN
@@ -89,6 +97,18 @@ Building buildings[MAX_BUILDINGS];
 
 // Global array of terrain chunks
 TerrainChunk terrainChunks[MAX_TERRAIN_CHUNKS];
+
+// Cloud structure for 3D sky
+typedef struct {
+    Vector3 position;
+    float scale;
+    float rotation;
+    int type; // Cloud type for different textures
+} Cloud;
+
+// Global array of clouds
+Cloud clouds[MAX_CLOUDS];
+Texture2D cloudTextures[MAX_CLOUD_TYPES];  // Different cloud textures for variety
 
 // Function to initialize a new animal
 void InitAnimal(Animal* animal, AnimalType type, Vector3 position) {
@@ -251,7 +271,6 @@ void UpdateAnimal(Animal* animal, float terrainSize) {
         if (animal->position.x < -boundary) animal->position.x = -boundary;
         if (animal->position.x > boundary) animal->position.x = boundary;
         if (animal->position.z < -boundary) animal->position.z = -boundary;
-        if (animal->position.z > boundary) animal->position.z = boundary;
         
         // Check for collisions with buildings
         int collidedBuildingIndex = -1;
@@ -485,7 +504,6 @@ void UpdateTerrainChunks(Vector3 playerPosition, Texture2D terrainTexture) {
     if (playerPosition.x < -boundary) playerPosition.x = -boundary;
     if (playerPosition.x > boundary) playerPosition.x = boundary;
     if (playerPosition.z < -boundary) playerPosition.z = -boundary;
-    if (playerPosition.z > boundary) playerPosition.z = boundary;
 }
 
 // Function to draw terrain chunks with fog effect
@@ -636,6 +654,162 @@ bool IsCollisionWithAnimal(Vector3 playerPosition, float playerRadius, int* anim
     return false;
 }
 
+// Draw a realistic sky: flat dome + hemisphere
+void DrawRealisticSky(Vector3 center, Texture2D skyTexture) {
+    // Parameters for the sky
+    float flatRadius = 200.0f; // Radius of the flat part
+    float flatHeight = 80.0f;  // Height above ground for the flat part
+    float hemiRadius = 200.0f; // Radius of the hemisphere
+    float hemiHeight = flatHeight; // Hemisphere starts at the edge of the flat part
+
+    // Draw flat disc (sky dome)
+    Mesh flatMesh = GenMeshCylinder(flatRadius, 0.1f, 64);
+    Model flatModel = LoadModelFromMesh(flatMesh);
+    flatModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = skyTexture;
+    SetMaterialTexture(&flatModel.materials[0], MATERIAL_MAP_DIFFUSE, skyTexture);
+    DrawModelEx(flatModel, (Vector3){center.x, center.y + flatHeight, center.z}, (Vector3){1,0,0}, 0, (Vector3){1,1,1}, WHITE);
+    UnloadModel(flatModel);
+
+    // Draw hemisphere (connects flat sky to ground)
+    Mesh hemiMesh = GenMeshHemiSphere(hemiRadius, 64, 32);
+    Model hemiModel = LoadModelFromMesh(hemiMesh);
+    hemiModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = skyTexture;
+    SetMaterialTexture(&hemiModel.materials[0], MATERIAL_MAP_DIFFUSE, skyTexture);
+    // Position hemisphere so its base aligns with the flat disc
+    DrawModelEx(hemiModel, (Vector3){center.x, center.y + hemiHeight, center.z}, (Vector3){1,0,0}, 0, (Vector3){1,1,1}, WHITE);
+    UnloadModel(hemiModel);
+}
+
+// Initialize clouds for a Minecraft-style sky
+void InitClouds(float terrainSize) {
+    // Create a single cloud texture - just a white rectangle
+    Image cloudImage = GenImageColor(32, 32, WHITE);
+    Texture2D cloudTexture = LoadTextureFromImage(cloudImage);
+    
+    // Use the same texture for all clouds
+    for (int i = 0; i < MAX_CLOUD_TYPES; i++) {
+        cloudTextures[i] = cloudTexture;
+    }
+    UnloadImage(cloudImage);
+    
+    // Improved cloud distribution to eliminate empty zones
+    // Use a grid-based approach with some randomization for more uniform coverage
+    
+    // Calculate how many clouds to place in each part of the sky
+    int cloudGridSize = 16;  // 16x16 grid for cloud placement
+    int cloudsPerCell = MAX_CLOUDS / (cloudGridSize * cloudGridSize);
+    
+    int cloudIndex = 0;
+    
+    // Fill the sky with clouds in a grid pattern (more uniform distribution)
+    for (int gridX = 0; gridX < cloudGridSize; gridX++) {
+        for (int gridZ = 0; gridZ < cloudGridSize; gridZ++) {
+            // Calculate the base position for this grid cell
+            float baseX = ((float)gridX / cloudGridSize) * 2.0f - 1.0f; // -1.0 to 1.0
+            float baseZ = ((float)gridZ / cloudGridSize) * 2.0f - 1.0f; // -1.0 to 1.0
+            
+            // Place multiple clouds in each grid cell with some randomness
+            for (int i = 0; i < cloudsPerCell; i++) {
+                if (cloudIndex >= MAX_CLOUDS) break;
+                
+                // Add randomness within each grid cell
+                float offsetX = GetRandomValue(-100, 100) / 200.0f; // -0.5 to 0.5
+                float offsetZ = GetRandomValue(-100, 100) / 200.0f; // -0.5 to 0.5
+                
+                // Calculate final normalized position (-1 to 1)
+                float normalizedX = baseX + offsetX / cloudGridSize;
+                float normalizedZ = baseZ + offsetZ / cloudGridSize;
+                
+                // Convert to world coordinates with distance from center
+                float distance = CLOUD_COVERAGE_RADIUS * (0.2f + (sqrtf(normalizedX*normalizedX + normalizedZ*normalizedZ) * 0.8f));
+                float angle = atan2f(normalizedZ, normalizedX);
+                
+                // Position the cloud
+                clouds[cloudIndex].position.x = cosf(angle) * distance;
+                clouds[cloudIndex].position.z = sinf(angle) * distance;
+                
+                // Vary cloud height
+                clouds[cloudIndex].position.y = CLOUD_LAYER_HEIGHT + GetRandomValue(-25, 35);
+                
+                // Adjust cloud size - slightly larger for more distant clouds
+                float distanceRatio = distance / CLOUD_COVERAGE_RADIUS;
+                clouds[cloudIndex].scale = CLOUD_MIN_SIZE + GetRandomValue(0, (int)(CLOUD_MAX_SIZE - CLOUD_MIN_SIZE));
+                
+                // Ensure slight size variation
+                if (i % 3 == 0) clouds[cloudIndex].scale *= 1.2f;
+                if (i % 7 == 0) clouds[cloudIndex].scale *= 0.8f;
+                
+                // No rotation 
+                clouds[cloudIndex].rotation = 0;
+                clouds[cloudIndex].type = 0;
+                
+                cloudIndex++;
+            }
+        }
+    }
+    
+    // Add some extra clouds to fill any remaining gaps
+    int extraCloudCount = MAX_CLOUDS - cloudIndex;
+    if (extraCloudCount > 0) {
+        // Add remaining clouds with a focus on filling gaps
+        for (int i = 0; i < extraCloudCount; i++) {
+            // Choose a random angle but with bias toward diagonal areas (where gaps are more likely)
+            float angle = GetRandomValue(0, 7) * PI/4 + GetRandomValue(-15, 15) * DEG2RAD;
+            float distance = GetRandomValue(20, (int)CLOUD_COVERAGE_RADIUS);
+            
+            clouds[cloudIndex].position.x = cosf(angle) * distance;
+            clouds[cloudIndex].position.z = sinf(angle) * distance;
+            clouds[cloudIndex].position.y = CLOUD_LAYER_HEIGHT + GetRandomValue(-20, 35);
+            
+            clouds[cloudIndex].scale = CLOUD_MIN_SIZE + GetRandomValue(0, (int)(CLOUD_MAX_SIZE - CLOUD_MIN_SIZE));
+            clouds[cloudIndex].rotation = 0;
+            clouds[cloudIndex].type = 0;
+            
+            cloudIndex++;
+        }
+    }
+}
+
+// Draw all clouds in the sky - Static Minecraft style
+void DrawClouds(Camera camera) {
+    for (int i = 0; i < MAX_CLOUDS; i++) {
+        // Calculate distance from camera to cloud
+        float distance = Vector3Distance(camera.position, clouds[i].position);
+        
+        // Skip clouds that are too far away
+        if (distance > CLOUD_VIEW_DISTANCE) continue;
+        
+        // Draw flat rectangular clouds (Minecraft style)
+        DrawCube(clouds[i].position, clouds[i].scale, clouds[i].scale * 0.2f, clouds[i].scale, WHITE);
+        
+        // Draw additional blocks for larger cloud shapes (2x2 or 3x3 patterns)
+        if (i % 3 == 0) { // Every third cloud gets a more complex shape
+            // Add 2-4 adjacent blocks to create a larger cloud formation
+            for (int bx = -1; bx <= 1; bx++) {
+                for (int bz = -1; bz <= 1; bz++) {
+                    // Skip center block (already drawn above)
+                    if (bx == 0 && bz == 0) continue;
+                    
+                    // Skip some blocks randomly for more varied shapes
+                    if (abs(bx) + abs(bz) > 1 && (i % 5 > 2)) continue;
+                    
+                    // Draw additional cloud blocks at fixed positions
+                    Vector3 blockPos = clouds[i].position;
+                    blockPos.x += bx * clouds[i].scale * 0.9f;
+                    blockPos.z += bz * clouds[i].scale * 0.9f;
+                    blockPos.y += (i % 3 - 1) * 0.1f * clouds[i].scale; // Small fixed height variation
+                    
+                    DrawCube(blockPos, 
+                            clouds[i].scale * 0.95f, 
+                            clouds[i].scale * 0.18f, 
+                            clouds[i].scale * 0.95f, 
+                            WHITE);
+                }
+            }
+        }
+    }
+}
+
 int main(void)
 {
     const int screenWidth = 1920;
@@ -670,21 +844,10 @@ int main(void)
         animals[i].active = false;
     }
     
-    // Model skybox
-    Model skybox = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f));
-    Texture2D skyboxTexture = LoadTexture(TextFormat("%s/sky/BlueSkySkybox.png", GetResourceDir()));
-    skybox.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = skyboxTexture;
-    
     // Set up basic fog effect for distance
     float fogDensity = FOG_DENSITY;
     Color fogColor = FOG_COLOR;
     
-    // Simple fog setup that's compatible with most raylib versions
-    SetShaderValue(skybox.materials[0].shader, GetShaderLocation(skybox.materials[0].shader, "fogDensity"), 
-                  &fogDensity, SHADER_UNIFORM_FLOAT);
-    SetShaderValue(skybox.materials[0].shader, GetShaderLocation(skybox.materials[0].shader, "fogColor"), 
-                  &fogColor, SHADER_UNIFORM_VEC4);
-
     // Pre-spawn some animals
     Vector3 horsePosition = { 5.0f, 0.0f, 5.0f };
     SpawnAnimal(ANIMAL_HORSE, horsePosition, CHUNK_SIZE);
@@ -714,6 +877,9 @@ int main(void)
     buildings[1].position = (Vector3){ 10.0f, 0.0f, 10.0f };
     buildings[1].scale = 0.5f;
     buildings[1].rotationAngle = 135.0f;
+
+    // Initialize the cloud system
+    InitClouds(FIXED_TERRAIN_SIZE);
 
     // Generate random columns for visualization
     float heights[MAX_COLUMNS] = {0};
@@ -773,19 +939,16 @@ int main(void)
         // Draw
         BeginDrawing();
 
-        ClearBackground(RAYWHITE);
+        // Clear background with light blue sky color
+        ClearBackground((Color){ 135, 206, 255, 255 });  // Light blue for sunny sky
 
         BeginMode3D(camera);
 
-        // Draw the skybox (scaled to be big)
-        rlDisableBackfaceCulling();
-        rlDisableDepthMask();
-        DrawModel(skybox, camera.position, 50.0f, WHITE);
-        rlEnableBackfaceCulling();
-        rlEnableDepthMask();
-
         // Draw terrain chunks
         DrawTerrainChunks();
+
+        // Draw clouds
+        DrawClouds(camera);
 
         // Draw all animals
         DrawAnimals();
@@ -869,8 +1032,6 @@ int main(void)
 
     // De-Initialization
     UnloadTexture(terrainTexture);
-    UnloadTexture(skyboxTexture);
-    UnloadModel(skybox);
     
     // Unload all animals
     for (int i = 0; i < animalCount; i++) {
@@ -898,6 +1059,11 @@ int main(void)
     // Unload building models
     for (int i = 0; i < MAX_BUILDINGS; i++) {
         UnloadModel(buildings[i].model);
+    }
+
+    // Unload cloud textures
+    for (int i = 0; i < MAX_CLOUD_TYPES; i++) {
+        UnloadTexture(cloudTextures[i]);
     }
 
     CloseWindow();
