@@ -6,6 +6,7 @@
 #include "math.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdbool.h>    // For bool type
 #define MAX_COLUMNS 20
 #define MAX_ANIMALS 100
 #define MAX_BUILDINGS 2  // For barn and horse barn
@@ -22,6 +23,10 @@
 #ifndef LIGHTGREEN
     #define LIGHTGREEN (Color){ 200, 255, 200, 255 }
 #endif
+
+// Function prototypes
+bool IsCollisionWithBuilding(Vector3 position, float radius, int* buildingIndex);
+bool IsCollisionWithAnimal(Vector3 position, float radius, int* animalIndex);
 
 // Building structure
 typedef struct {
@@ -234,6 +239,10 @@ void UpdateAnimal(Animal* animal, float terrainSize) {
     
     // Update position if animal is moving
     if (animal->isMoving) {
+        // Store original position for collision handling
+        Vector3 oldPosition = animal->position;
+        
+        // Try to move in the current direction
         animal->position.x += animal->direction.x * animal->speed;
         animal->position.z += animal->direction.z * animal->speed;
         
@@ -244,16 +253,52 @@ void UpdateAnimal(Animal* animal, float terrainSize) {
         if (animal->position.z < -boundary) animal->position.z = -boundary;
         if (animal->position.z > boundary) animal->position.z = boundary;
         
+        // Check for collisions with buildings
+        int collidedBuildingIndex = -1;
+        if (IsCollisionWithBuilding(animal->position, animal->scale * 1.5f, &collidedBuildingIndex)) {
+            // Collision occurred, revert position
+            animal->position = oldPosition;
+            
+            // Calculate new direction away from building
+            Vector3 awayFromBuilding = Vector3Subtract(animal->position, buildings[collidedBuildingIndex].position);
+            float len = sqrtf(awayFromBuilding.x * awayFromBuilding.x + awayFromBuilding.z * awayFromBuilding.z);
+            
+            if (len > 0) {
+                // Normalize the direction vector
+                awayFromBuilding.x /= len;
+                awayFromBuilding.z /= len;
+                
+                // Add some randomness to prevent animals getting stuck
+                float randomAngle = GetRandomValue(-30, 30) * DEG2RAD;
+                float currentAngle = atan2f(awayFromBuilding.x, awayFromBuilding.z);
+                float newAngle = currentAngle + randomAngle;
+                
+                // Set new direction
+                animal->direction.x = sinf(newAngle);
+                animal->direction.z = cosf(newAngle);
+                
+                // Update rotation angle to match new direction
+                animal->rotationAngle = atan2f(animal->direction.x, animal->direction.z) * RAD2DEG;
+                
+                // Reset timer to make a new decision sooner
+                animal->moveTimer = animal->moveInterval - 0.5f;
+                
+                // Try to move in the new direction
+                animal->position.x += animal->direction.x * animal->speed;
+                animal->position.z += animal->direction.z * animal->speed;
+            }
+        }
+        
         // Check for collisions with other animals
         for (int i = 0; i < animalCount; i++) {
             if (!animals[i].active || &animals[i] == animal) continue;
             
             // Simple collision detection
             float distance = Vector3Distance(animal->position, animals[i].position);
-            float minDistance = (animal->scale + animals[i].scale) * 0.8f;
+            float minDistance = (animal->scale + animals[i].scale) * 1.2f;
             
             if (distance < minDistance) {
-                // Move away from the other animal
+                // Calculate direction away from the other animal
                 Vector3 awayDir = {
                     animal->position.x - animals[i].position.x,
                     0,
@@ -262,19 +307,22 @@ void UpdateAnimal(Animal* animal, float terrainSize) {
                 
                 float len = sqrtf(awayDir.x * awayDir.x + awayDir.z * awayDir.z);
                 if (len > 0) {
+                    // Normalize the direction
                     awayDir.x /= len;
                     awayDir.z /= len;
                     
-                    animal->position.x += awayDir.x * animal->speed * 2.0f;
-                    animal->position.z += awayDir.z * animal->speed * 2.0f;
+                    // Move away from the collision
+                    animal->position = oldPosition; // Revert to old position first
+                    animal->position.x += awayDir.x * animal->speed * 1.5f;
+                    animal->position.z += awayDir.z * animal->speed * 1.5f;
                     
-                    // Update direction and angle
+                    // Update direction and angle for natural movement
                     animal->direction = awayDir;
                     animal->rotationAngle = atan2f(animal->direction.x, animal->direction.z) * RAD2DEG;
+                    
+                    // Reset timer to make a new decision sooner
+                    animal->moveTimer = animal->moveInterval - 0.5f;
                 }
-                
-                // Reset timer to make a new decision sooner
-                animal->moveTimer = animal->moveInterval - 0.5f;
             }
         }
     }
@@ -450,7 +498,7 @@ void DrawTerrainChunks(void) {
     }
 }
 
-// Custom camera update function to fix the W+D movement lag
+// Custom camera update function with collision detection
 void UpdateCameraCustom(Camera *camera, int mode)
 {
     // Camera movement speed vectors
@@ -477,6 +525,9 @@ void UpdateCameraCustom(Camera *camera, int mode)
     // Handle camera modes
     if (mode == CAMERA_FIRST_PERSON || mode == CAMERA_THIRD_PERSON)
     {
+        // Store original position for collision detection
+        Vector3 oldPosition = camera->position;
+        
         // Get camera up vector
         Vector3 up = { 0.0f, 1.0f, 0.0f };
 
@@ -493,9 +544,22 @@ void UpdateCameraCustom(Camera *camera, int mode)
         translation = Vector3Add(translation, Vector3Scale(forward, -moveVec.z * speed));
         translation = Vector3Add(translation, Vector3Scale(right, moveVec.x * speed));
 
-        // Apply movement
-        camera->position = Vector3Add(camera->position, translation);
-        camera->target = Vector3Add(camera->target, translation);
+        // Calculate new position
+        Vector3 newPosition = Vector3Add(camera->position, translation);
+        
+        // Check for collisions with buildings
+        float playerCollisionRadius = 0.5f;
+        int collidedWithIndex = -1;
+        
+        // Only update position if there's no collision with buildings
+        if (!IsCollisionWithBuilding(newPosition, playerCollisionRadius, &collidedWithIndex)) {
+            // No building collision, now check for animal collisions
+            if (!IsCollisionWithAnimal(newPosition, playerCollisionRadius, NULL)) {
+                // No collisions, apply the movement
+                camera->position = newPosition;
+                camera->target = Vector3Add(camera->target, translation);
+            }
+        }
     }
 
     // Process mouse movement for camera look
@@ -503,6 +567,73 @@ void UpdateCameraCustom(Camera *camera, int mode)
         (Vector3){ 0.0f, 0.0f, 0.0f },
         (Vector3){ GetMouseDelta().x * 0.1f, GetMouseDelta().y * 0.1f, 0.0f }, 
         0.0f);
+}
+
+// Function to check if an animal is colliding with a building
+bool IsCollisionWithBuilding(Vector3 animalPosition, float animalRadius, int* buildingIndex) {
+    for (int i = 0; i < MAX_BUILDINGS; i++) {
+        // Calculate distance between animal and building center
+        float distance = Vector3Distance(animalPosition, buildings[i].position);
+        
+        // Use a collision radius based on the building type
+        float buildingRadius;
+        if (i == 0) { // barn.glb - needs a larger radius relative to its small scale
+            buildingRadius = 6.0f; // Fixed size regardless of scale since the scale is very small (0.05)
+        } else { // horse_barn.glb
+            buildingRadius = 6.0f * buildings[i].scale;
+        }
+        
+        // Check for collision
+        if (distance < (animalRadius + buildingRadius)) {
+            if (buildingIndex != NULL) *buildingIndex = i;
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+// Function to check if the player is colliding with an animal
+bool IsCollisionWithAnimal(Vector3 playerPosition, float playerRadius, int* animalIndex) {
+    for (int i = 0; i < animalCount; i++) {
+        if (!animals[i].active) continue;
+        
+        // Calculate distance between player and animal
+        float distance = Vector3Distance(playerPosition, animals[i].position);
+        
+        // Use a collision radius based on the animal type for more accurate collision
+        float animalRadius;
+        switch(animals[i].type) {
+            case ANIMAL_HORSE:
+                animalRadius = 2.5f; // Larger collision for horse
+                break;
+            case ANIMAL_COW:
+                animalRadius = 2.0f; // Larger collision for cow
+                break;
+            case ANIMAL_PIG:
+                animalRadius = 1.5f; // Medium collision for pig
+                break;
+            case ANIMAL_DOG:
+                animalRadius = 1.2f; // Medium collision for dog
+                break;
+            case ANIMAL_CAT:
+                animalRadius = 1.0f; // Small collision for cat
+                break;
+            case ANIMAL_CHICKEN:
+                animalRadius = 0.8f; // Small collision for chicken
+                break;
+            default:
+                animalRadius = animals[i].scale * 1.5f; // Fallback
+        }
+        
+        // Check for collision
+        if (distance < (playerRadius + animalRadius)) {
+            if (animalIndex != NULL) *animalIndex = i;
+            return true;
+        }
+    }
+    
+    return false;
 }
 
 int main(void)
