@@ -6,7 +6,8 @@
 #include "math.h"
 #include <stdlib.h>
 #include <stdio.h>
-#include <stdbool.h>    // For bool type
+#include <stdbool.h> 
+#include <string.h>  // For bool type
 #define MAX_COLUMNS 20
 #define MAX_ANIMALS 100
 #define MAX_BUILDINGS 2  // For barn and horse barn
@@ -98,6 +99,42 @@ Building buildings[MAX_BUILDINGS];
 // Global array of terrain chunks
 TerrainChunk terrainChunks[MAX_TERRAIN_CHUNKS];
 
+Model roadModel;
+Texture2D roadTexture;
+Vector3 roadPosition;
+float roadRotationAngle;
+float roadLength;
+float roadWidth = 4.0f; 
+
+#define MAX_PATH_POINTS 200       // Maximum points in a recorded path
+#define MAX_CUSTOM_ROADS 10
+
+typedef struct {
+    Vector3 points[MAX_PATH_POINTS];
+    int numPoints;
+    Model segments[MAX_PATH_POINTS - 1]; // MAX_PATH_POINTS-1 segments
+    Vector3 segmentPositions[MAX_PATH_POINTS - 1];
+    float segmentRotations[MAX_PATH_POINTS - 1];
+    int segmentCount;
+    bool isActive; // Is this road currently being drawn/used?
+    char name[64]; // Optional name for the road
+} CustomRoad;
+
+CustomRoad allCustomRoads[MAX_CUSTOM_ROADS];
+int totalCustomRoadsCount = 0; // How many roads are currently defined
+
+// Buffer for the path currently being recorded
+bool isRecordingPath = false;
+Vector3 currentRecordingBuffer[MAX_PATH_POINTS];
+int currentRecordingPointCount = 0;
+float minRecordDistanceSq = 2.0f * 2.0f;
+
+Model customRoadSegments[MAX_PATH_POINTS - 1];         // Models for each segment of the custom road
+Vector3 customRoadSegmentPositions[MAX_PATH_POINTS - 1]; // Pre-calculated positions for each segment
+float customRoadSegmentRotations[MAX_PATH_POINTS - 1];   // Pre-calculated rotations for each segment
+int customRoadSegmentCount = 0;
+bool useCustomRoad = false;
+
 // Cloud structure for 3D sky
 typedef struct {
     Vector3 position;
@@ -109,6 +146,121 @@ typedef struct {
 // Global array of clouds
 Cloud clouds[MAX_CLOUDS];
 Texture2D cloudTextures[MAX_CLOUD_TYPES];  // Different cloud textures for variety
+
+Vector3 Farm_Entrance_points[] = {
+    { -14.73f, 0.15f, -5.82f },
+    { -16.56f, 0.15f, -4.85f },
+    { -18.33f, 0.15f, -3.91f },
+    { -20.10f, 0.15f, -2.97f },
+    { -21.87f, 0.15f, -2.04f },
+    { -22.24f, 0.15f, -0.03f },
+    { -21.08f, 0.15f, 1.69f },
+    { -19.91f, 0.15f, 3.41f },
+    { -18.75f, 0.15f, 5.14f },
+    { -17.59f, 0.15f, 6.86f },
+    { -16.42f, 0.15f, 8.58f },
+    { -15.26f, 0.15f, 10.31f },
+    { -14.09f, 0.15f, 12.03f },
+    { -12.93f, 0.15f, 13.75f },
+    { -11.76f, 0.15f, 15.48f },
+    { -10.60f, 0.15f, 17.20f },
+    { -9.44f, 0.15f, 18.92f },
+    { -8.27f, 0.15f, 20.65f },
+    { -7.15f, 0.15f, 22.31f },
+    { -6.03f, 0.15f, 23.96f },
+    { -4.42f, 0.15f, 22.67f },
+    { -2.91f, 0.15f, 21.36f },
+    { -1.39f, 0.15f, 20.05f },
+    { 0.12f, 0.15f, 18.74f },
+    { 1.63f, 0.15f, 17.42f },
+    { 3.14f, 0.15f, 16.11f },
+    { 4.65f, 0.15f, 14.80f },
+    { 6.16f, 0.15f, 13.49f },
+    { 7.67f, 0.15f, 12.18f },
+};
+
+int Farm_Entrance_numPoints = 29;
+char Farm_Entrance_name[] = "Farm Entrance";
+
+// Function to generate road segment models for a specific CustomRoad
+void GenerateRoadSegments(CustomRoad* road, float rWidth, Texture2D rTexture) {
+    if (!road || road->numPoints < 2) {
+        if (road) {
+            road->segmentCount = 0;
+            road->isActive = false;
+        }
+        TraceLog(LOG_INFO, "Path has less than 2 points or road is null, cannot generate segments.");
+        return;
+    }
+
+    // Unload previous segments if any for this specific road
+    for (int i = 0; i < road->segmentCount; i++) {
+        if (road->segments[i].meshCount > 0) UnloadModel(road->segments[i]);
+    }
+
+    road->segmentCount = road->numPoints - 1;
+    if (road->segmentCount >= MAX_PATH_POINTS) { // Should be MAX_PATH_POINTS - 1
+        road->segmentCount = MAX_PATH_POINTS - 2; // Ensure valid indexing for segments array
+        TraceLog(LOG_WARNING, "Path too long for road '%s', truncated to %d segments.", road->name, road->segmentCount);
+    }
+
+    TraceLog(LOG_INFO, "Generating %d segments for road '%s'.", road->segmentCount, road->name);
+
+    for (int i = 0; i < road->segmentCount; i++) {
+        Vector3 p1 = road->points[i];
+        Vector3 p2 = road->points[i+1];
+
+        p1.y = 0.15f;
+        p2.y = 0.15f;
+
+        Vector3 segmentVector = Vector3Subtract(p2, p1);
+        float segmentLength = Vector3Length(segmentVector);
+
+        if (segmentLength < 0.01f) {
+            TraceLog(LOG_WARNING, "Segment %d for road '%s' is too short.", i, road->name);
+            Mesh emptyMesh = GenMeshPlane(0.01f, rWidth, 1, 1);
+            road->segments[i] = LoadModelFromMesh(emptyMesh);
+            road->segmentPositions[i] = p1;
+            road->segmentRotations[i] = 0;
+        } else {
+            road->segmentPositions[i] = Vector3Scale(Vector3Add(p1, p2), 0.5f);
+            road->segmentRotations[i] = atan2f(segmentVector.x, segmentVector.z) * RAD2DEG;
+
+            Mesh segmentMesh = GenMeshPlane(segmentLength, rWidth, 1, 1);
+            for (int v = 0; v < segmentMesh.vertexCount; v++) {
+                segmentMesh.texcoords[v*2] *= segmentLength / rWidth;
+            }
+            road->segments[i] = LoadModelFromMesh(segmentMesh);
+        }
+        
+        if (road->segments[i].meshCount > 0) {
+             road->segments[i].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = rTexture;
+        } else {
+            TraceLog(LOG_ERROR, "Failed to load model for segment %d of road '%s'", i, road->name);
+        }
+    }
+    road->isActive = true;
+    TraceLog(LOG_INFO, "Segments generated successfully for road '%s'.", road->name);
+}
+
+// Function to draw all active custom roads
+void DrawAllCustomRoads() {
+    for (int i = 0; i < totalCustomRoadsCount; i++) {
+        if (allCustomRoads[i].isActive && allCustomRoads[i].segmentCount > 0) {
+            for (int j = 0; j < allCustomRoads[i].segmentCount; j++) {
+                if (allCustomRoads[i].segments[j].meshCount > 0) {
+                    DrawModelEx(allCustomRoads[i].segments[j], 
+                                allCustomRoads[i].segmentPositions[j], 
+                                (Vector3){0.0f, 1.0f, 0.0f}, 
+                                allCustomRoads[i].segmentRotations[j], 
+                                Vector3One(), WHITE);
+                }
+            }
+        }
+    }
+}
+
+// ... InitAnimal function ...
 
 // Function to initialize a new animal
 void InitAnimal(Animal* animal, AnimalType type, Vector3 position) {
@@ -148,7 +300,7 @@ void InitAnimal(Animal* animal, AnimalType type, Vector3 position) {
             animal->walkingAnim = LoadModelAnimations("animals/walking_dog.glb", &animal->walkingAnimCount);
             animal->idleAnim = LoadModelAnimations("animals/idle_dog.glb", &animal->idleAnimCount);
             animal->scale = 0.8f;
-            animal->speed = 0.018f; // Reduced speed
+            animal->speed = 0.0075f; // Reduced speed
             break;
         case ANIMAL_COW:
             animal->walkingModel = LoadModel("animals/walking_cow.glb");
@@ -172,7 +324,7 @@ void InitAnimal(Animal* animal, AnimalType type, Vector3 position) {
             animal->walkingAnim = LoadModelAnimations("animals/walking_pig.glb", &animal->walkingAnimCount);
             animal->idleAnim = LoadModelAnimations("animals/idle_pig.glb", &animal->idleAnimCount);
             animal->scale = 0.16f;  // Reduced from 0.8f by 5x
-            animal->speed = 0.011f; // Reduced speed
+            animal->speed = 0.00825f; // Reduced speed
             break;
         case ANIMAL_COUNT:
         default:
@@ -516,7 +668,7 @@ void DrawTerrainChunks(void) {
     }
 }
 
-// Custom camera update function with collision detection
+// ...existing code...
 void UpdateCameraCustom(Camera *camera, int mode)
 {
     // Camera movement speed vectors
@@ -571,20 +723,51 @@ void UpdateCameraCustom(Camera *camera, int mode)
         
         // Only update position if there's no collision with buildings
         if (!IsCollisionWithBuilding(newPosition, playerCollisionRadius, &collidedWithIndex)) {
-            // No building collision, now check for animal collisions
-            if (!IsCollisionWithAnimal(newPosition, playerCollisionRadius, NULL)) {
+            // Check for collision with animals
+            int collidedAnimalIndex = -1;
+            bool animalCollision = IsCollisionWithAnimal(newPosition, playerCollisionRadius, &collidedAnimalIndex);
+            
+            if (!animalCollision) {
                 // No collisions, apply the movement
                 camera->position = newPosition;
                 camera->target = Vector3Add(camera->target, translation);
+            } else {
+                // We collided with an animal, but check if we're trying to move away from it
+                if (collidedAnimalIndex >= 0) {
+                    // Calculate direction from animal to player
+                    Vector3 animalToPlayer = Vector3Subtract(camera->position, animals[collidedAnimalIndex].position);
+                    animalToPlayer.y = 0.0f; // Project onto horizontal plane
+                    animalToPlayer = Vector3Normalize(animalToPlayer);
+                    
+                    // Calculate dot product between movement vector and direction away from animal
+                    // Higher value means we're moving away from the animal
+                    float dot = Vector3DotProduct(Vector3Normalize(translation), animalToPlayer);
+                    
+                    if (dot > 0.0f) {
+                        // Moving away from animal, allow movement
+                        camera->position = newPosition;
+                        camera->target = Vector3Add(camera->target, translation);
+                    }
+                }
             }
         }
     }
 
-    // Process mouse movement for camera look
+    // Process mouse movement for camera look with deadzone
+    Vector2 mouseDelta = GetMouseDelta();
+    float mouseSensitivity = 0.1f;
+    float deadzone = 0.5f; // Adjust this value if needed. Higher means less sensitive.
+
+    float yawInput = 0.0f;
+    float pitchInput = 0.0f;
+
+    if (fabsf(mouseDelta.x) > deadzone) yawInput = mouseDelta.x * mouseSensitivity;
+    if (fabsf(mouseDelta.y) > deadzone) pitchInput = mouseDelta.y * mouseSensitivity;
+    
     UpdateCameraPro(camera, 
-        (Vector3){ 0.0f, 0.0f, 0.0f },
-        (Vector3){ GetMouseDelta().x * 0.1f, GetMouseDelta().y * 0.1f, 0.0f }, 
-        0.0f);
+        (Vector3){ 0.0f, 0.0f, 0.0f },      // Movement (handled by our code above)
+        (Vector3){ yawInput, pitchInput, 0.0f }, // Rotation (yaw, pitch, roll)
+        0.0f);                               // Zoom
 }
 
 // Function to check if an animal is colliding with a building
@@ -623,10 +806,10 @@ bool IsCollisionWithAnimal(Vector3 playerPosition, float playerRadius, int* anim
         float animalRadius;
         switch(animals[i].type) {
             case ANIMAL_HORSE:
-                animalRadius = 2.5f; // Larger collision for horse
+                animalRadius = 1.8f; // Reduced from 2.5f to 1.8f for easier navigation
                 break;
             case ANIMAL_COW:
-                animalRadius = 2.0f; // Larger collision for cow
+                animalRadius = 1.7f; // Larger collision for cow
                 break;
             case ANIMAL_PIG:
                 animalRadius = 1.5f; // Medium collision for pig
@@ -812,8 +995,11 @@ void DrawClouds(Camera camera) {
 
 int main(void)
 {
-    const int screenWidth = 1920;
-    const int screenHeight = 1080;
+    // const int screenWidth = 1512;
+    // const int screenHeight = 1080;
+    int currentMonitor = GetCurrentMonitor();
+    const int screenWidth = GetMonitorWidth(currentMonitor);
+    const int screenHeight = GetMonitorHeight(currentMonitor);
 
     InitWindow(screenWidth, screenHeight, "VR Farming Simulator");
 
@@ -878,6 +1064,51 @@ int main(void)
     buildings[1].scale = 0.5f;
     buildings[1].rotationAngle = 135.0f;
 
+
+    // --- Road Initialization ---
+    // Load road texture
+    roadTexture = LoadTexture("textures/rocky_trail_diff_8k.jpg"); // Make sure you have this texture
+    GenTextureMipmaps(&roadTexture); // Ensure mipmaps are generated
+    SetTextureFilter(roadTexture, TEXTURE_FILTER_ANISOTROPIC_16X);
+    SetTextureWrap(roadTexture, TEXTURE_WRAP_REPEAT);
+
+    // Calculate road parameters
+    Vector3 building1Pos = buildings[0].position;
+    Vector3 building2Pos = buildings[1].position;
+
+    // Midpoint between buildings
+    roadPosition = Vector3Scale(Vector3Add(building1Pos, building2Pos), 0.5f);
+    roadPosition.y = 0.1f; // Slightly above ground to prevent z-fighting
+
+    // Vector from building 1 to building 2
+    Vector3 roadVector = Vector3Subtract(building2Pos, building1Pos);
+    roadLength = Vector3Length(roadVector);
+
+    // Angle of the road (rotation around Y axis)
+    roadRotationAngle = atan2f(roadVector.x, roadVector.z) * RAD2DEG;
+
+    // Generate road mesh (Plane width is road length, Plane height is road width)
+    Mesh roadMesh = GenMeshPlane(roadLength, roadWidth, 1, 1);
+
+    // Adjust UVs for texture tiling along the length
+    for (int i = 0; i < roadMesh.vertexCount; i++) {
+        roadMesh.texcoords[i*2] *= roadLength / roadWidth; // Tile texture based on length/width ratio
+    }
+
+    roadModel = LoadModelFromMesh(roadMesh);
+    roadModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = roadTexture;
+    // --- End Road Initialization ---
+    if (totalCustomRoadsCount < MAX_CUSTOM_ROADS && Farm_Entrance_numPoints > 1) {
+        CustomRoad* newRoad = &allCustomRoads[totalCustomRoadsCount];
+        snprintf(newRoad->name, sizeof(newRoad->name), "%s", Farm_Entrance_name);
+        newRoad->numPoints = Farm_Entrance_numPoints;
+        // Use memcpy to copy the points array
+        memcpy(newRoad->points, Farm_Entrance_points, sizeof(Vector3) * newRoad->numPoints);
+        GenerateRoadSegments(newRoad, roadWidth, roadTexture); // Generate the visuals
+        totalCustomRoadsCount++; // Increment the count of active roads
+    }
+    
+
     // Initialize the cloud system
     InitClouds(FIXED_TERRAIN_SIZE);
 
@@ -909,6 +1140,70 @@ int main(void)
             cameraMode = CAMERA_ORBITAL;      
 
         UpdateCameraCustom(&camera, cameraMode);
+
+        
+        // --- Path Recording Logic ---
+        if (IsKeyPressed(KEY_R)) {
+            isRecordingPath = !isRecordingPath;
+            if (isRecordingPath) {
+                currentRecordingPointCount = 0;
+                TraceLog(LOG_INFO, "Path recording STARTED. Move around.");
+            } else {
+                TraceLog(LOG_INFO, "Path recording STOPPED. %d points recorded.", currentRecordingPointCount);
+                if (currentRecordingPointCount >= 2) {
+                    if (totalCustomRoadsCount < MAX_CUSTOM_ROADS) {
+                        CustomRoad* newRoad = &allCustomRoads[totalCustomRoadsCount];
+                        snprintf(newRoad->name, sizeof(newRoad->name), "Recorded Road %d", totalCustomRoadsCount + 1);
+                        newRoad->numPoints = currentRecordingPointCount;
+                        memcpy(newRoad->points, currentRecordingBuffer, sizeof(Vector3) * newRoad->numPoints);
+                        
+                        GenerateRoadSegments(newRoad, roadWidth, roadTexture); // Generate segments for the new road
+                        
+                        totalCustomRoadsCount++;
+                        TraceLog(LOG_INFO, "New custom road '%s' created with %d points.", newRoad->name, newRoad->numPoints);
+                    } else {
+                        TraceLog(LOG_WARNING, "Max custom roads limit reached (%d). Cannot add new recorded path.", MAX_CUSTOM_ROADS);
+                    }
+                } else {
+                     TraceLog(LOG_WARNING, "Not enough points (%d) to form a path.", currentRecordingPointCount);
+                }
+            }
+        }
+
+        if (isRecordingPath && currentRecordingPointCount < MAX_PATH_POINTS) {
+            Vector3 currentGroundPos = { camera.position.x, 0.15f, camera.position.z };
+            if (currentRecordingPointCount == 0 || Vector3DistanceSqr(currentGroundPos, currentRecordingBuffer[currentRecordingPointCount - 1]) > minRecordDistanceSq) {
+                currentRecordingBuffer[currentRecordingPointCount] = currentGroundPos;
+                currentRecordingPointCount++;
+                // TraceLog(LOG_INFO, "Path point %d recorded at (%.2f, %.2f, %.2f)", currentRecordingPointCount, currentGroundPos.x, currentGroundPos.y, currentGroundPos.z);
+            }
+        }
+        
+        // Export path and generate road for preview
+        if (IsKeyPressed(KEY_E)) {
+            if (totalCustomRoadsCount > 0 && !isRecordingPath) { // Export the last defined road
+                CustomRoad* roadToExp = &allCustomRoads[totalCustomRoadsCount - 1];
+                if (roadToExp->numPoints > 1) {
+                    printf("// --- Recorded Path Data for: %s ---\n", roadToExp->name);
+                    printf("Vector3 %s_points[] = {\n", roadToExp->name); // Use road name for array
+                    for (int i = 0; i < roadToExp->numPoints; i++) {
+                        printf("    { %.2ff, %.2ff, %.2ff },\n", roadToExp->points[i].x, roadToExp->points[i].y, roadToExp->points[i].z);
+                    }
+                    printf("};\n");
+                    printf("int %s_numPoints = %d;\n", roadToExp->name, roadToExp->numPoints);
+                    printf("char %s_name[] = \"%s\";\n", roadToExp->name, roadToExp->name);
+                    printf("// --- End Recorded Path Data ---\n");
+                    TraceLog(LOG_INFO, "Path data for '%s' printed to console.", roadToExp->name);
+                } else {
+                    TraceLog(LOG_WARNING, "Last road '%s' has insufficient points to export.", roadToExp->name);
+                }
+            } else if (isRecordingPath) {
+                TraceLog(LOG_WARNING, "Stop recording (press R) before exporting (E).");
+            } else {
+                TraceLog(LOG_WARNING, "No custom roads recorded or defined to export.");
+            }
+        }
+        // --- End Path Recording Logic ---
         
         // Update terrain chunks around the player
         UpdateTerrainChunks(camera.position, terrainTexture);
@@ -946,6 +1241,14 @@ int main(void)
 
         // Draw terrain chunks
         DrawTerrainChunks();
+        if (totalCustomRoadsCount > 0) {
+            DrawAllCustomRoads();
+        } else {
+            // Fallback to drawing the original straight road if no custom roads are active
+            if (roadModel.meshCount > 0) {
+                 DrawModelEx(roadModel, roadPosition, (Vector3){0.0f, 1.0f, 0.0f}, roadRotationAngle, Vector3One(), WHITE);
+            }
+        }
 
         // Draw clouds
         DrawClouds(camera);
@@ -974,6 +1277,12 @@ int main(void)
         }
 
         EndMode3D();
+        int centerX = GetScreenWidth() / 2;
+        int centerY = GetScreenHeight() / 2;
+        int crosshairSize = 8; // Size of the crosshair arms
+        DrawLine(centerX - crosshairSize, centerY, centerX + crosshairSize, centerY, WHITE); // Horizontal line
+        DrawLine(centerX, centerY - crosshairSize, centerX, centerY + crosshairSize, WHITE); // Vertical line
+
 
         // Draw info boxes
         DrawRectangle(5, 5, 330, 100, Fade(SKYBLUE, 0.5f));
@@ -985,6 +1294,9 @@ int main(void)
         DrawText("- Camera mode keys: 1, 2, 3, 4", 15, 60, 10, BLACK);
         DrawText("- Zoom keys: num-plus, num-minus or mouse scroll", 15, 75, 10, BLACK);
         DrawText("- Camera projection key: P", 15, 90, 10, BLACK);
+        // ... existing DrawText for animal controls ...
+DrawText("- R: Start/Stop Path Recording", 15, 240, 10, BLACK);
+DrawText("- E: Export Path to Console (after stopping recording)", 15, 255, 10, BLACK);
 
         // Animal controls info
         DrawRectangle(5, 110, 330, 120, Fade(LIGHTGRAY, 0.5f));
@@ -1048,6 +1360,11 @@ int main(void)
             UnloadModelAnimations(animals[i].idleAnim, animals[i].idleAnimCount);
         }
     }
+
+    // Unload custom road segments
+for (int i = 0; i < customRoadSegmentCount; i++) {
+    if (customRoadSegments[i].meshCount > 0) UnloadModel(customRoadSegments[i]);
+}
 
     // Unload terrain chunks
     for (int i = 0; i < MAX_TERRAIN_CHUNKS; i++) {
