@@ -57,7 +57,7 @@ typedef enum {
 // Plant structure
 typedef struct {
     PlantType type;
-    Model model;
+    Model model; // This will now refer to one of the globally loaded models
     Vector3 position;
     float scale;
     float rotationAngle;
@@ -72,6 +72,12 @@ void SpawnPlant(PlantType type, Vector3 position, float scale, float rotation);
 Vector3 GetRandomPlantPosition(float terrainSize);
 void DrawPlants(void);
 void UnloadPlantResources(void);
+
+// --- Global Models for Plants ---
+Model globalTreeModel;
+Model globalGrassModel;
+Model globalFlowerModel;
+// --- End Global Models for Plants ---
 
 // Building structure
 typedef struct {
@@ -144,28 +150,28 @@ void InitPlant(Plant* plant, PlantType type, Vector3 position, float scale, floa
     plant->rotationAngle = rotation;
     plant->active = true;
 
+    // Assign pre-loaded global model based on type
     switch(type) {
         case PLANT_TREE:
-            plant->model = LoadModel("plants/tree.glb");
+            plant->model = globalTreeModel;
             break;
         case PLANT_GRASS:
-            plant->model = LoadModel("plants/grass.glb");
+            plant->model = globalGrassModel;
             break;
         case PLANT_FLOWER:
-            plant->model = LoadModel("plants/flower.glb");
+            plant->model = globalFlowerModel;
             break;
         default:
             plant->active = false; // Invalid type
             TraceLog(LOG_WARNING, "Attempted to initialize invalid plant type.");
+            // Assign a default or empty model to avoid issues if model is not loaded
+            // For safety, ensure global models are loaded before this is called.
+            // If a type is invalid, plant->model might remain uninitialized if not handled.
+            // Consider assigning a known invalid/empty model or checking plant->active before drawing.
             break;
     }
-    if (plant->active) {
-        // Ensure model is loaded
-        if (plant->model.meshCount == 0) {
-            TraceLog(LOG_ERROR, "Failed to load model for plant type: %d", type);
-            plant->active = false;
-        }
-    }
+    // No need to check plant->model.meshCount here if we ensure global models are loaded correctly.
+    // The active flag will prevent drawing if the type was invalid.
 }
 
 // Function to spawn a plant of specified type
@@ -228,12 +234,15 @@ void DrawPlants(void) {
 
 // Unload all plant resources
 void UnloadPlantResources(void) {
-    for (int i = 0; i < plantCount; i++) {
-        if (plants[i].active && plants[i].model.meshCount > 0) { // Check if model was loaded
-            UnloadModel(plants[i].model);
-        }
-    }
-    plantCount = 0; 
+    // Unload the globally loaded plant models
+    if (globalTreeModel.meshCount > 0) UnloadModel(globalTreeModel);
+    if (globalGrassModel.meshCount > 0) UnloadModel(globalGrassModel);
+    if (globalFlowerModel.meshCount > 0) UnloadModel(globalFlowerModel);
+
+    // Clear the plant array itself if needed, but models are now global
+    plantCount = 0;
+    // Note: The individual plant instances in the `plants` array no longer "own" the model data
+    // in terms of loading/unloading. They just use a reference to the global ones.
 }
 
 // Global array of terrain chunks
@@ -1407,7 +1416,19 @@ int main(void)
     for (int i = 0; i < MAX_PLANTS; i++) {
         plants[i].active = false;
     }
-    
+
+    // --- Load Global Plant Models ---
+    // Ensure these paths are correct and models exist
+    globalTreeModel = LoadModel("plants/tree.glb");
+    if (globalTreeModel.meshCount == 0) TraceLog(LOG_ERROR, "Failed to load tree.glb");
+
+    globalGrassModel = LoadModel("plants/grass.glb");
+    if (globalGrassModel.meshCount == 0) TraceLog(LOG_ERROR, "Failed to load grass.glb");
+
+    globalFlowerModel = LoadModel("plants/flower.glb");
+    if (globalFlowerModel.meshCount == 0) TraceLog(LOG_ERROR, "Failed to load flower.glb");
+    // --- End Load Global Plant Models ---
+
     // Set up basic fog effect for distance
     float fogDensity = FOG_DENSITY;
     Color fogColor = FOG_COLOR;
