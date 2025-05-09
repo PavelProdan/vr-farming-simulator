@@ -148,36 +148,39 @@ Cloud clouds[MAX_CLOUDS];
 Texture2D cloudTextures[MAX_CLOUD_TYPES];  // Different cloud textures for variety
 
 Vector3 Farm_Entrance_points[] = {
-    { -13.84f, 0.15f, -5.03f },
-    { -15.59f, 0.15f, -3.90f },
-    { -17.34f, 0.15f, -2.78f },
-    { -19.09f, 0.15f, -1.65f },
-    { -20.81f, 0.15f, -0.49f },
-    { -21.40f, 0.15f, 1.48f },
-    { -20.76f, 0.15f, 3.45f },
-    { -19.65f, 0.15f, 5.20f },
-    { -18.49f, 0.15f, 6.92f },
-    { -17.28f, 0.15f, 8.62f },
-    { -16.11f, 0.15f, 10.24f },
-    { -14.95f, 0.15f, 11.87f },
-    { -13.70f, 0.15f, 13.54f },
-    { -12.45f, 0.15f, 15.20f },
-    { -11.18f, 0.15f, 16.84f },
-    { -9.90f, 0.15f, 18.48f },
-    { -8.62f, 0.15f, 20.12f },
-    { -7.32f, 0.15f, 21.74f },
-    { -5.62f, 0.15f, 22.86f },
-    { -3.60f, 0.15f, 22.37f },
-    { -1.63f, 0.15f, 21.72f },
-    { -0.02f, 0.15f, 20.51f },
-    { 1.35f, 0.15f, 18.94f },
-    { 2.73f, 0.15f, 17.38f },
-    { 4.15f, 0.15f, 15.87f },
-    { 5.58f, 0.15f, 14.36f },
-    { 7.03f, 0.15f, 12.87f },
+    { -10.97f, 0.15f, -7.52f },
+    { -12.55f, 0.15f, -6.29f },
+    { -14.13f, 0.15f, -5.07f },
+    { -15.71f, 0.15f, -3.84f },
+    { -17.35f, 0.15f, -2.56f },
+    { -18.99f, 0.15f, -1.29f },
+    { -20.38f, 0.15f, 0.25f },
+    { -21.14f, 0.15f, 2.18f },
+    { -20.92f, 0.15f, 4.23f },
+    { -19.95f, 0.15f, 6.07f },
+    { -18.76f, 0.15f, 7.77f },
+    { -17.57f, 0.15f, 9.48f },
+    { -16.37f, 0.15f, 11.18f },
+    { -15.15f, 0.15f, 12.86f },
+    { -13.92f, 0.15f, 14.54f },
+    { -12.65f, 0.15f, 16.19f },
+    { -11.34f, 0.15f, 17.80f },
+    { -10.07f, 0.15f, 19.35f },
+    { -8.69f, 0.15f, 20.90f },
+    { -7.07f, 0.15f, 22.20f },
+    { -5.11f, 0.15f, 22.84f },
+    { -3.07f, 0.15f, 22.82f },
+    { -1.20f, 0.15f, 21.91f },
+    { 0.45f, 0.15f, 20.65f },
+    { 1.89f, 0.15f, 19.15f },
+    { 3.28f, 0.15f, 17.61f },
+    { 4.65f, 0.15f, 16.05f },
+    { 5.97f, 0.15f, 14.54f },
+    { 7.29f, 0.15f, 13.03f },
+    { 8.65f, 0.15f, 11.47f },
 };
 
-int Farm_Entrance_numPoints = 27;
+int Farm_Entrance_numPoints = 30;
 char Farm_Entrance_name[] = "Farm Entrance";
 
 // Function to generate road segment models for a specific CustomRoad
@@ -255,9 +258,9 @@ void GenerateRoadSegments(CustomRoad* road, float rWidth, Texture2D rTexture) {
         Vector3 leftEdge = Vector3Subtract(currentPoint, Vector3Scale(perpendicular, roadWidth / 2.0f));
         Vector3 rightEdge = Vector3Add(currentPoint, Vector3Scale(perpendicular, roadWidth / 2.0f));
         
-        // Set consistent height slightly above ground
-        leftEdge.y = 0.2f;  // Slightly higher to prevent z-fighting
-        rightEdge.y = 0.2f;
+        // Set consistent height at terrain level (just slightly above to prevent z-fighting)
+        leftEdge.y = 0.01f;
+        rightEdge.y = 0.01f;
         
         // Store left edge vertex
         int leftIndex = i * 6;  // 2 vertices per point, 3 floats per vertex
@@ -575,6 +578,9 @@ void InitAnimal(Animal* animal, AnimalType type, Vector3 position) {
         TraceLog(LOG_WARNING, "No idle animations found for animal type %d", type);
     }
 }
+
+// Global flag for collision detection
+bool collisionDetectionEnabled = true; // Default is enabled
 
 // Function to update animal position and state
 void UpdateAnimal(Animal* animal, float terrainSize) {
@@ -937,36 +943,43 @@ void UpdateCameraCustom(Camera *camera, int mode)
         // Calculate new position
         Vector3 newPosition = Vector3Add(camera->position, translation);
         
-        // Check for collisions with buildings
-        float playerCollisionRadius = 0.5f;
-        int collidedWithIndex = -1;
-        
-        // Only update position if there's no collision with buildings
-        if (!IsCollisionWithBuilding(newPosition, playerCollisionRadius, &collidedWithIndex)) {
-            // Check for collision with animals
-            int collidedAnimalIndex = -1;
-            bool animalCollision = IsCollisionWithAnimal(newPosition, playerCollisionRadius, &collidedAnimalIndex);
+        // Skip collision checks if collision detection is disabled
+        if (!collisionDetectionEnabled) {
+            // No collision checks - apply movement directly
+            camera->position = newPosition;
+            camera->target = Vector3Add(camera->target, translation);
+        } else {
+            // Collision detection is enabled - perform collision checks
+            float playerCollisionRadius = 0.5f;
+            int collidedWithIndex = -1;
             
-            if (!animalCollision) {
-                // No collisions, apply the movement
-                camera->position = newPosition;
-                camera->target = Vector3Add(camera->target, translation);
-            } else {
-                // We collided with an animal, but check if we're trying to move away from it
-                if (collidedAnimalIndex >= 0) {
-                    // Calculate direction from animal to player
-                    Vector3 animalToPlayer = Vector3Subtract(camera->position, animals[collidedAnimalIndex].position);
-                    animalToPlayer.y = 0.0f; // Project onto horizontal plane
-                    animalToPlayer = Vector3Normalize(animalToPlayer);
-                    
-                    // Calculate dot product between movement vector and direction away from animal
-                    // Higher value means we're moving away from the animal
-                    float dot = Vector3DotProduct(Vector3Normalize(translation), animalToPlayer);
-                    
-                    if (dot > 0.0f) {
-                        // Moving away from animal, allow movement
-                        camera->position = newPosition;
-                        camera->target = Vector3Add(camera->target, translation);
+            // Only update position if there's no collision with buildings
+            if (!IsCollisionWithBuilding(newPosition, playerCollisionRadius, &collidedWithIndex)) {
+                // Check for collision with animals
+                int collidedAnimalIndex = -1;
+                bool animalCollision = IsCollisionWithAnimal(newPosition, playerCollisionRadius, &collidedAnimalIndex);
+                
+                if (!animalCollision) {
+                    // No collisions, apply the movement
+                    camera->position = newPosition;
+                    camera->target = Vector3Add(camera->target, translation);
+                } else {
+                    // We collided with an animal, but check if we're trying to move away from it
+                    if (collidedAnimalIndex >= 0) {
+                        // Calculate direction from animal to player
+                        Vector3 animalToPlayer = Vector3Subtract(camera->position, animals[collidedAnimalIndex].position);
+                        animalToPlayer.y = 0.0f; // Project onto horizontal plane
+                        animalToPlayer = Vector3Normalize(animalToPlayer);
+                        
+                        // Calculate dot product between movement vector and direction away from animal
+                        // Higher value means we're moving away from the animal
+                        float dot = Vector3DotProduct(Vector3Normalize(translation), animalToPlayer);
+                        
+                        if (dot > 0.0f) {
+                            // Moving away from animal, allow movement
+                            camera->position = newPosition;
+                            camera->target = Vector3Add(camera->target, translation);
+                        }
                     }
                 }
             }
@@ -1284,10 +1297,20 @@ int main(void)
     buildings[1].scale = 0.5f;
     buildings[1].rotationAngle = 135.0f;
 
+    // Load nature scene model
+    Model natureSceneModel = LoadModel("scenes/nature&mountains.glb");
+    Vector3 natureScenePosition = { 10.0f, 0.2f, -80.0f }; // Further from the barn
+    float natureSceneScale = 30.0f;
+
+    // // Load second nature scene model
+    // Model natureSceneModel2 = LoadModel("scenes/nature&mountains.glb");
+    // Vector3 natureScenePosition2 = { -25.0f, 0.0f, -350.0f }; // Near the first nature scene
+    // float natureSceneScale2 = 30.0f;
+
 
     // --- Road Initialization ---
     // Load road texture
-    roadTexture = LoadTexture("textures/sandstone_cracks_diff_8k.jpg"); // Make sure you have this texture
+    roadTexture = LoadTexture("textures/rocky_trail_diff_8k.jpg"); // Make sure you have this texture
     GenTextureMipmaps(&roadTexture); // Ensure mipmaps are generated
     // Try different texture filters for best visual quality
     SetTextureFilter(roadTexture, TEXTURE_FILTER_TRILINEAR); // Experiment: try BILINEAR, TRILINEAR, or ANISOTROPIC_16X
@@ -1364,142 +1387,50 @@ int main(void)
 
         UpdateCameraCustom(&camera, cameraMode);
 
-        
-        // --- Path Recording Logic ---
-        if (IsKeyPressed(KEY_R)) {
-            isRecordingPath = !isRecordingPath;
-            if (isRecordingPath) {
-                currentRecordingPointCount = 0;
-                TraceLog(LOG_INFO, "Path recording STARTED. Move around.");
-            } else {
-                TraceLog(LOG_INFO, "Path recording STOPPED. %d points recorded.", currentRecordingPointCount);
-                if (currentRecordingPointCount >= 2) {
-                    if (totalCustomRoadsCount < MAX_CUSTOM_ROADS) {
-                        CustomRoad* newRoad = &allCustomRoads[totalCustomRoadsCount];
-                        snprintf(newRoad->name, sizeof(newRoad->name), "Recorded Road %d", totalCustomRoadsCount + 1);
-                        newRoad->numPoints = currentRecordingPointCount;
-                        memcpy(newRoad->points, currentRecordingBuffer, sizeof(Vector3) * newRoad->numPoints);
-                        
-                        GenerateRoadSegments(newRoad, roadWidth, roadTexture); // Generate segments for the new road
-                        
-                        totalCustomRoadsCount++;
-                        TraceLog(LOG_INFO, "New custom road '%s' created with %d points.", newRoad->name, newRoad->numPoints);
-                    } else {
-                        TraceLog(LOG_WARNING, "Max custom roads limit reached (%d). Cannot add new recorded path.", MAX_CUSTOM_ROADS);
-                    }
-                } else {
-                     TraceLog(LOG_WARNING, "Not enough points (%d) to form a path.", currentRecordingPointCount);
-                }
-            }
-        }
-
-        if (isRecordingPath && currentRecordingPointCount < MAX_PATH_POINTS) {
-            Vector3 currentGroundPos = { camera.position.x, 0.15f, camera.position.z };
-            if (currentRecordingPointCount == 0 || Vector3DistanceSqr(currentGroundPos, currentRecordingBuffer[currentRecordingPointCount - 1]) > minRecordDistanceSq) {
-                currentRecordingBuffer[currentRecordingPointCount] = currentGroundPos;
-                currentRecordingPointCount++;
-                // TraceLog(LOG_INFO, "Path point %d recorded at (%.2f, %.2f, %.2f)", currentRecordingPointCount, currentGroundPos.x, currentGroundPos.y, currentGroundPos.z);
-            }
-        }
-        
-        // Export path and generate road for preview
-        if (IsKeyPressed(KEY_E)) {
-            if (totalCustomRoadsCount > 0 && !isRecordingPath) { // Export the last defined road
-                CustomRoad* roadToExp = &allCustomRoads[totalCustomRoadsCount - 1];
-                if (roadToExp->numPoints > 1) {
-                    printf("// --- Recorded Path Data for: %s ---\n", roadToExp->name);
-                    printf("Vector3 %s_points[] = {\n", roadToExp->name); // Use road name for array
-                    for (int i = 0; i < roadToExp->numPoints; i++) {
-                        printf("    { %.2ff, %.2ff, %.2ff },\n", roadToExp->points[i].x, roadToExp->points[i].y, roadToExp->points[i].z);
-                    }
-                    printf("};\n");
-                    printf("int %s_numPoints = %d;\n", roadToExp->name, roadToExp->numPoints);
-                    printf("char %s_name[] = \"%s\";\n", roadToExp->name, roadToExp->name);
-                    printf("// --- End Recorded Path Data ---\n");
-                    TraceLog(LOG_INFO, "Path data for '%s' printed to console.", roadToExp->name);
-                } else {
-                    TraceLog(LOG_WARNING, "Last road '%s' has insufficient points to export.", roadToExp->name);
-                }
-            } else if (isRecordingPath) {
-                TraceLog(LOG_WARNING, "Stop recording (press R) before exporting (E).");
-            } else {
-                TraceLog(LOG_WARNING, "No custom roads recorded or defined to export.");
-            }
-        }
-        // --- End Path Recording Logic ---
-        
-        // Update terrain chunks around the player
-        UpdateTerrainChunks(camera.position, terrainTexture);
-        
-        // Animal spawn controls with keyboard
-        if (IsKeyPressed(KEY_H)) SpawnMultipleAnimals(ANIMAL_HORSE, 5, CHUNK_SIZE, camera);
-        if (IsKeyPressed(KEY_C)) SpawnMultipleAnimals(ANIMAL_CAT, 5, CHUNK_SIZE, camera);
-        if (IsKeyPressed(KEY_G)) SpawnMultipleAnimals(ANIMAL_DOG, 5, CHUNK_SIZE, camera); // Changed from KEY_D to KEY_G
-        if (IsKeyPressed(KEY_O)) SpawnMultipleAnimals(ANIMAL_COW, 5, CHUNK_SIZE, camera);
-        if (IsKeyPressed(KEY_K)) SpawnMultipleAnimals(ANIMAL_CHICKEN, 5, CHUNK_SIZE, camera);
-        if (IsKeyPressed(KEY_P)) SpawnMultipleAnimals(ANIMAL_PIG, 5, CHUNK_SIZE, camera);
-        
-        // Clear all animals when DELETE is pressed
-        if (IsKeyPressed(KEY_DELETE)) {
-            animalCount = 0;
-            for (int i = 0; i < ANIMAL_COUNT; i++) {
-                animalCountByType[i] = 0;
-            }
-        }
-        
-        // Update all animals
+        // Update animal positions and states
         for (int i = 0; i < animalCount; i++) {
             if (animals[i].active) {
-                UpdateAnimal(&animals[i], CHUNK_SIZE);
+                UpdateAnimal(&animals[i], FIXED_TERRAIN_SIZE);
             }
         }
+        
+        // Update terrain chunks based on player position
+        UpdateTerrainChunks(camera.position, terrainTexture);
 
-        // Draw
         BeginDrawing();
-
-        // Clear background with light blue sky color
-        ClearBackground((Color){ 135, 206, 255, 255 });  // Light blue for sunny sky
+        ClearBackground(SKY_COLOR); // Use sky color as background
 
         BeginMode3D(camera);
 
         // Draw terrain chunks
         DrawTerrainChunks();
-        if (totalCustomRoadsCount > 0) {
-            DrawAllCustomRoads();
-        } else {
-            // Fallback to drawing the original straight road if no custom roads are active
-            if (roadModel.meshCount > 0) {
-                 DrawModelEx(roadModel, roadPosition, (Vector3){0.0f, 1.0f, 0.0f}, roadRotationAngle, Vector3One(), WHITE);
-            }
-        }
+        
+        // Draw the road
+        DrawModelEx(roadModel, roadPosition, (Vector3){0.0f, 1.0f, 0.0f}, roadRotationAngle, (Vector3){1.0f, 1.0f, 1.0f}, WHITE);
 
-        // Draw clouds
-        DrawClouds(camera);
-
-        // Draw all animals
-        DrawAnimals();
+        // Draw all custom roads
+        DrawAllCustomRoads();
 
         // Draw buildings
         for (int i = 0; i < MAX_BUILDINGS; i++)
         {
-            DrawModelEx(
-                buildings[i].model, 
-                buildings[i].position, 
-                (Vector3){0.0f, 1.0f, 0.0f},  // Rotation axis (Y-axis)
-                buildings[i].rotationAngle,   // Rotation angle
-                (Vector3){buildings[i].scale, buildings[i].scale, buildings[i].scale}, 
-                WHITE
-            );
+            DrawModelEx(buildings[i].model, buildings[i].position, (Vector3){0.0f, 1.0f, 0.0f}, buildings[i].rotationAngle, (Vector3){buildings[i].scale, buildings[i].scale, buildings[i].scale}, WHITE);
         }
 
-        // Draw player cube in third-person mode
-        if (cameraMode == CAMERA_THIRD_PERSON)
-        {
-            DrawCube(camera.target, 0.5f, 0.5f, 0.5f, PURPLE);
-            DrawCubeWires(camera.target, 0.5f, 0.5f, 0.5f, DARKPURPLE);
-        }
+        // Draw the nature scene model
+        DrawModel(natureSceneModel, natureScenePosition, natureSceneScale, WHITE);
+        // Draw the second nature scene model
+        //DrawModel(natureSceneModel2, natureScenePosition2, natureSceneScale2, WHITE);
+
+        // Draw animals
+        DrawAnimals();
+        
+        // Draw clouds
+        DrawClouds(camera);
 
         EndMode3D();
+
+        // Draw crosshair in the center of the screen
         int centerX = GetScreenWidth() / 2;
         int centerY = GetScreenHeight() / 2;
         int crosshairSize = 8; // Size of the crosshair arms
@@ -1511,16 +1442,10 @@ int main(void)
         DrawRectangle(5, 5, 330, 100, Fade(SKYBLUE, 0.5f));
         DrawRectangleLines(5, 5, 330, 100, BLUE);
 
-        DrawText("Camera controls:", 15, 15, 10, BLACK);
-        DrawText("- Move keys: W, A, S, D, Space, Left-Ctrl", 15, 30, 10, BLACK);
-        DrawText("- Look around: arrow keys or mouse", 15, 45, 10, BLACK);
-        DrawText("- Camera mode keys: 1, 2, 3, 4", 15, 60, 10, BLACK);
-        DrawText("- Zoom keys: num-plus, num-minus or mouse scroll", 15, 75, 10, BLACK);
-        DrawText("- Camera projection key: P", 15, 90, 10, BLACK);
-        // ... existing DrawText for animal controls ...
-DrawText("- R: Start/Stop Path Recording", 15, 240, 10, BLACK);
-DrawText("- E: Export Path to Console (after stopping recording)", 15, 255, 10, BLACK);
-
+        DrawText("- T - Disable collision", 15, 15, 10, BLACK);
+        DrawText("- R: Start/Stop Path Recording", 15, 30, 10, BLACK);
+        DrawText("- E: Export Path to Console (after stopping recording)", 15, 45, 10, BLACK);
+        
         // Animal controls info
         DrawRectangle(5, 110, 330, 120, Fade(LIGHTGRAY, 0.5f));
         DrawRectangleLines(5, 110, 330, 120, GRAY);
@@ -1559,7 +1484,7 @@ DrawText("- E: Export Path to Console (after stopping recording)", 15, 255, 10, 
         DrawText(TextFormat("Total: %d/%d", animalCount, MAX_ANIMALS), 610, 135, 10, BLACK);
         DrawText(TextFormat("Horses: %d", animalCountByType[ANIMAL_HORSE]), 610, 150, 10, BLACK);
         DrawText(TextFormat("Cats: %d", animalCountByType[ANIMAL_CAT]), 610, 165, 10, BLACK);
-        DrawText(TextFormat("Dogs: %d", animalCountByType[ANIMAL_DOG]), 610, 180, 10, BLACK);
+        DrawText(TextFormat("Dogs: %d", animalCountByType[ANIMAL_DOG]), 610, 180,  10, BLACK);
         DrawText(TextFormat("Others: %d", animalCountByType[ANIMAL_COW] + animalCountByType[ANIMAL_CHICKEN] + animalCountByType[ANIMAL_PIG]), 610, 195, 10, BLACK);
 
         EndDrawing();
@@ -1570,7 +1495,7 @@ DrawText("- E: Export Path to Console (after stopping recording)", 15, 255, 10, 
     
     // Unload all animals
     for (int i = 0; i < animalCount; i++) {
-        if (!animals[i].active) continue;
+               if (!animals[i].active) continue;
         
         UnloadModel(animals[i].walkingModel);
         UnloadModel(animals[i].idleModel);
@@ -1585,26 +1510,28 @@ DrawText("- E: Export Path to Console (after stopping recording)", 15, 255, 10, 
     }
 
     // Unload custom road segments
-for (int i = 0; i < customRoadSegmentCount; i++) {
-    if (customRoadSegments[i].meshCount > 0) UnloadModel(customRoadSegments[i]);
-}
-
-    // Unload terrain chunks
-    for (int i = 0; i < MAX_TERRAIN_CHUNKS; i++) {
-        if (terrainChunks[i].active) {
-            UnloadModel(terrainChunks[i].model);
+    for (int i = 0; i < totalCustomRoadsCount; i++) {
+        if (allCustomRoads[i].segmentCount > 0) {
+            for (int j = 0; j < allCustomRoads[i].segmentCount; j++) {
+                if (allCustomRoads[i].segments[j].meshCount > 0) {
+                    UnloadModel(allCustomRoads[i].segments[j]);
+                }
+            }
         }
     }
-    
+    UnloadTexture(roadTexture);
+    UnloadModel(roadModel);
+
     // Unload building models
-    for (int i = 0; i < MAX_BUILDINGS; i++) {
+    for (int i = 0; i < MAX_BUILDINGS; i++)
+    {
         UnloadModel(buildings[i].model);
     }
+    UnloadModel(natureSceneModel); // Unload the nature scene model
+    //UnloadModel(natureSceneModel2); // Unload the second nature scene model
 
-    // Unload cloud textures
-    for (int i = 0; i < MAX_CLOUD_TYPES; i++) {
-        UnloadTexture(cloudTextures[i]);
-    }
+    // Unload animal resources
+    UnloadAnimalResources();
 
     CloseWindow();
     return 0;
