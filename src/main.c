@@ -12,6 +12,7 @@
 #define MAX_ANIMALS 100
 #define MAX_BUILDINGS 2  // For barn and horse barn
 #define MAX_CLOUDS 5000   // Increased number of clouds
+#define MAX_PLANTS 1000 // Maximum number of plants (increased from 200)
 #define MAX_CLOUD_TYPES 1 // Number of different cloud types/textures
 #define CLOUD_LAYER_HEIGHT 120.0f  // Height for all clouds
 #define CLOUD_COVERAGE_RADIUS 1500.0f // Expanded cloud coverage for more distant clouds
@@ -33,9 +34,32 @@
     #define LIGHTGREEN (Color){ 200, 255, 200, 255 }
 #endif
 
+// Plant types enum
+typedef enum {
+    PLANT_TREE,
+    PLANT_GRASS,
+    PLANT_FLOWER,
+    PLANT_TYPE_COUNT
+} PlantType;
+
+// Plant structure
+typedef struct {
+    PlantType type;
+    Model model;
+    Vector3 position;
+    float scale;
+    float rotationAngle;
+    bool active;
+} Plant;
+
 // Function prototypes
 bool IsCollisionWithBuilding(Vector3 position, float radius, int* buildingIndex);
 bool IsCollisionWithAnimal(Vector3 position, float radius, int* animalIndex);
+void InitPlant(Plant* plant, PlantType type, Vector3 position, float scale, float rotation);
+void SpawnPlant(PlantType type, Vector3 position, float scale, float rotation);
+Vector3 GetRandomPlantPosition(float terrainSize);
+void DrawPlants(void);
+void UnloadPlantResources(void);
 
 // Building structure
 typedef struct {
@@ -95,6 +119,110 @@ int animalCountByType[ANIMAL_COUNT] = {0};
 
 // Global array of buildings
 Building buildings[MAX_BUILDINGS];
+
+// Global array of plants
+Plant plants[MAX_PLANTS];
+int plantCount = 0;
+
+// Function to initialize a new plant
+void InitPlant(Plant* plant, PlantType type, Vector3 position, float scale, float rotation) {
+    plant->type = type;
+    plant->position = position;
+    plant->scale = scale;
+    plant->rotationAngle = rotation;
+    plant->active = true;
+
+    switch(type) {
+        case PLANT_TREE:
+            plant->model = LoadModel("plants/tree.glb");
+            break;
+        case PLANT_GRASS:
+            plant->model = LoadModel("plants/grass.glb");
+            break;
+        case PLANT_FLOWER:
+            plant->model = LoadModel("plants/flower.glb");
+            break;
+        default:
+            plant->active = false; // Invalid type
+            TraceLog(LOG_WARNING, "Attempted to initialize invalid plant type.");
+            break;
+    }
+    if (plant->active) {
+        // Ensure model is loaded
+        if (plant->model.meshCount == 0) {
+            TraceLog(LOG_ERROR, "Failed to load model for plant type: %d", type);
+            plant->active = false;
+        }
+    }
+}
+
+// Function to spawn a plant of specified type
+void SpawnPlant(PlantType type, Vector3 position, float scale, float rotation) {
+    if (plantCount >= MAX_PLANTS) {
+        TraceLog(LOG_WARNING, "Cannot spawn more plants - maximum limit reached.");
+        return;
+    }
+    InitPlant(&plants[plantCount], type, position, scale, rotation);
+    if (plants[plantCount].active) {
+        plantCount++;
+    }
+}
+
+// Helper to generate a random position for spawning plants
+Vector3 GetRandomPlantPosition(float terrainSize) { // terrainSize argument is kept for signature consistency
+    Vector3 position;
+    // Define a larger area for plant spawning
+    float minX = -100.0f; 
+    float maxX = 100.0f;
+    float minZ = -100.0f;
+    float maxZ = 100.0f;
+    int maxAttempts = 20; // Try a few times to find a non-colliding spot
+
+    for (int attempt = 0; attempt < maxAttempts; attempt++) {
+        // Generate position within the defined smaller area
+        position.x = GetRandomValue(minX * 100, maxX * 100) / 100.0f;
+        position.z = GetRandomValue(minZ * 100, maxZ * 100) / 100.0f;
+        position.y = 0.0f; // On the ground
+
+        bool collisionWithBuilding = false;
+        for (int i = 0; i < MAX_BUILDINGS; i++) {
+            // Check distance to the center of the building.
+            // Plants can be spawned closer, e.g., 3.0f units from building origin.
+            if (Vector3Distance(position, buildings[i].position) < 3.0f) { 
+                collisionWithBuilding = true;
+                break;
+            }
+        }
+
+        if (!collisionWithBuilding) {
+            return position; // Found a good spot
+        }
+    }
+
+    // If maxAttempts reached, return the last generated position.
+    // This might place a plant inside a building if all attempts failed in the constrained area.
+    TraceLog(LOG_WARNING, "GetRandomPlantPosition: Could not find a non-colliding position after %d attempts near buildings. Placing at last attempted spot.", maxAttempts);
+    return position;
+}
+
+// Draw all active plants
+void DrawPlants(void) {
+    for (int i = 0; i < plantCount; i++) {
+        if (plants[i].active) {
+            DrawModelEx(plants[i].model, plants[i].position, (Vector3){0.0f, 1.0f, 0.0f}, plants[i].rotationAngle, (Vector3){plants[i].scale, plants[i].scale, plants[i].scale}, WHITE);
+        }
+    }
+}
+
+// Unload all plant resources
+void UnloadPlantResources(void) {
+    for (int i = 0; i < plantCount; i++) {
+        if (plants[i].active && plants[i].model.meshCount > 0) { // Check if model was loaded
+            UnloadModel(plants[i].model);
+        }
+    }
+    plantCount = 0; 
+}
 
 // Global array of terrain chunks
 TerrainChunk terrainChunks[MAX_TERRAIN_CHUNKS];
@@ -263,7 +391,7 @@ void GenerateRoadSegments(CustomRoad* road, float rWidth, Texture2D rTexture) {
         rightEdge.y = 0.01f;
         
         // Store left edge vertex
-        int leftIndex = i * 6;  // 2 vertices per point, 3 floats per vertex
+        int leftIndex = i * 6;  // 2 triangles per segment * 3 indices per triangle
         roadMesh.vertices[leftIndex] = leftEdge.x;
         roadMesh.vertices[leftIndex + 1] = leftEdge.y;
         roadMesh.vertices[leftIndex + 2] = leftEdge.z;
@@ -449,7 +577,7 @@ void GenerateSmoothRoad(CustomRoad* road, float rWidth, Texture2D rTexture) {
     
     // Create model from mesh
     road->segments[0] = LoadModelFromMesh(roadMesh);
-    road->segments[0].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = rTexture;
+    road->segments[0].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = roadTexture;
     
     // Set as single-segment road
     road->segmentCount = 1;
@@ -1262,6 +1390,11 @@ int main(void)
     for (int i = 0; i < MAX_ANIMALS; i++) {
         animals[i].active = false;
     }
+
+    // Initialize the plants array
+    for (int i = 0; i < MAX_PLANTS; i++) {
+        plants[i].active = false;
+    }
     
     // Set up basic fog effect for distance
     float fogDensity = FOG_DENSITY;
@@ -1298,15 +1431,42 @@ int main(void)
     buildings[1].rotationAngle = 135.0f;
 
     // Load nature scene model
-    Model natureSceneModel = LoadModel("scenes/nature&mountains.glb");
-    Vector3 natureScenePosition = { 10.0f, 0.2f, -80.0f }; // Further from the barn
-    float natureSceneScale = 30.0f;
+    // Model natureSceneModel = LoadModel("scenes/nature&mountains.glb");
+    // Vector3 natureScenePosition = { -25.0f, 0.0f, -25.0f }; // Further from the barn
+    // float natureSceneScale = 1.0f;
 
     // // Load second nature scene model
     // Model natureSceneModel2 = LoadModel("scenes/nature&mountains.glb");
-    // Vector3 natureScenePosition2 = { -25.0f, 0.0f, -350.0f }; // Near the first nature scene
-    // float natureSceneScale2 = 30.0f;
+    // Vector3 natureScenePosition2 = { -25.0f, 0.0f, -50.0f }; // Near the first nature scene
+    // float natureSceneScale2 = 1.0f;
 
+    // Spawn plants (numbers increased)
+    int numberOfTrees = 160; // Increased from 50
+    for (int i = 0; i < numberOfTrees; i++) {
+        Vector3 pos = GetRandomPlantPosition(FIXED_TERRAIN_SIZE);
+        float scale = GetRandomValue(80, 150) / 100.0f; // Random scale between 0.8 and 1.5
+        float rotation = GetRandomValue(0, 360);
+        SpawnPlant(PLANT_TREE, pos, scale, rotation);
+    }
+
+    int numberOfGrassPatches = 700; // Increased from 100
+    for (int i = 0; i < numberOfGrassPatches; i++) {
+        Vector3 pos = GetRandomPlantPosition(FIXED_TERRAIN_SIZE);
+        // Ensure grass is slightly above ground to avoid z-fighting, if necessary
+        // pos.y = 0.05f; 
+        float scale = GetRandomValue(50, 120) / 100.0f; // Random scale
+        float rotation = GetRandomValue(0, 360);
+        SpawnPlant(PLANT_GRASS, pos, scale, rotation);
+    }
+
+    int numberOfFlowers = 320; // Increased from 80
+    for (int i = 0; i < numberOfFlowers; i++) {
+        Vector3 pos = GetRandomPlantPosition(FIXED_TERRAIN_SIZE);
+        // pos.y = 0.02f;
+        float scale = GetRandomValue(70, 130) / 100.0f; // Random scale
+        float rotation = GetRandomValue(0, 360);
+        SpawnPlant(PLANT_FLOWER, pos, scale, rotation);
+    }
 
     // --- Road Initialization ---
     // Load road texture
@@ -1367,7 +1527,7 @@ int main(void)
     {
         heights[i] = (float)GetRandomValue(1, 12);
         positions[i] = (Vector3){(float)GetRandomValue(-15, 15), heights[i] / 2.0f, (float)GetRandomValue(-15, 15)};
-        colors[i] = (Color){GetRandomValue(20, 255), GetRandomValue(10, 55), 30, 255};
+        colors[i] = (Color){GetRandomValue(20, 255), GetRandomValue(10,  55), 30, 255};
     }
 
     DisableCursor();
@@ -1375,7 +1535,7 @@ int main(void)
 
     while (!WindowShouldClose())
     {
-        // Update camera mode
+               // Update camera mode
         if (IsKeyPressed(KEY_ONE))
             cameraMode = CAMERA_FREE;
         if (IsKeyPressed(KEY_TWO))
@@ -1418,9 +1578,12 @@ int main(void)
         }
 
         // Draw the nature scene model
-        DrawModel(natureSceneModel, natureScenePosition, natureSceneScale, WHITE);
-        // Draw the second nature scene model
-        //DrawModel(natureSceneModel2, natureScenePosition2, natureSceneScale2, WHITE);
+        // DrawModel(natureSceneModel, natureScenePosition, natureSceneScale, WHITE);
+        // // Draw the second nature scene model
+        // DrawModel(natureSceneModel2, natureScenePosition2, natureSceneScale2, WHITE);
+
+        // Draw plants
+        DrawPlants();
 
         // Draw animals
         DrawAnimals();
@@ -1527,8 +1690,11 @@ int main(void)
     {
         UnloadModel(buildings[i].model);
     }
-    UnloadModel(natureSceneModel); // Unload the nature scene model
-    //UnloadModel(natureSceneModel2); // Unload the second nature scene model
+    // UnloadModel(natureSceneModel); // Unload the nature scene model
+    // UnloadModel(natureSceneModel2); // Unload the second nature scene model
+
+    // Unload plant resources
+    UnloadPlantResources();
 
     // Unload animal resources
     UnloadAnimalResources();
