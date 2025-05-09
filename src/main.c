@@ -148,38 +148,36 @@ Cloud clouds[MAX_CLOUDS];
 Texture2D cloudTextures[MAX_CLOUD_TYPES];  // Different cloud textures for variety
 
 Vector3 Farm_Entrance_points[] = {
-    { -14.73f, 0.15f, -5.82f },
-    { -16.56f, 0.15f, -4.85f },
-    { -18.33f, 0.15f, -3.91f },
-    { -20.10f, 0.15f, -2.97f },
-    { -21.87f, 0.15f, -2.04f },
-    { -22.24f, 0.15f, -0.03f },
-    { -21.08f, 0.15f, 1.69f },
-    { -19.91f, 0.15f, 3.41f },
-    { -18.75f, 0.15f, 5.14f },
-    { -17.59f, 0.15f, 6.86f },
-    { -16.42f, 0.15f, 8.58f },
-    { -15.26f, 0.15f, 10.31f },
-    { -14.09f, 0.15f, 12.03f },
-    { -12.93f, 0.15f, 13.75f },
-    { -11.76f, 0.15f, 15.48f },
-    { -10.60f, 0.15f, 17.20f },
-    { -9.44f, 0.15f, 18.92f },
-    { -8.27f, 0.15f, 20.65f },
-    { -7.15f, 0.15f, 22.31f },
-    { -6.03f, 0.15f, 23.96f },
-    { -4.42f, 0.15f, 22.67f },
-    { -2.91f, 0.15f, 21.36f },
-    { -1.39f, 0.15f, 20.05f },
-    { 0.12f, 0.15f, 18.74f },
-    { 1.63f, 0.15f, 17.42f },
-    { 3.14f, 0.15f, 16.11f },
-    { 4.65f, 0.15f, 14.80f },
-    { 6.16f, 0.15f, 13.49f },
-    { 7.67f, 0.15f, 12.18f },
+    { -13.84f, 0.15f, -5.03f },
+    { -15.59f, 0.15f, -3.90f },
+    { -17.34f, 0.15f, -2.78f },
+    { -19.09f, 0.15f, -1.65f },
+    { -20.81f, 0.15f, -0.49f },
+    { -21.40f, 0.15f, 1.48f },
+    { -20.76f, 0.15f, 3.45f },
+    { -19.65f, 0.15f, 5.20f },
+    { -18.49f, 0.15f, 6.92f },
+    { -17.28f, 0.15f, 8.62f },
+    { -16.11f, 0.15f, 10.24f },
+    { -14.95f, 0.15f, 11.87f },
+    { -13.70f, 0.15f, 13.54f },
+    { -12.45f, 0.15f, 15.20f },
+    { -11.18f, 0.15f, 16.84f },
+    { -9.90f, 0.15f, 18.48f },
+    { -8.62f, 0.15f, 20.12f },
+    { -7.32f, 0.15f, 21.74f },
+    { -5.62f, 0.15f, 22.86f },
+    { -3.60f, 0.15f, 22.37f },
+    { -1.63f, 0.15f, 21.72f },
+    { -0.02f, 0.15f, 20.51f },
+    { 1.35f, 0.15f, 18.94f },
+    { 2.73f, 0.15f, 17.38f },
+    { 4.15f, 0.15f, 15.87f },
+    { 5.58f, 0.15f, 14.36f },
+    { 7.03f, 0.15f, 12.87f },
 };
 
-int Farm_Entrance_numPoints = 29;
+int Farm_Entrance_numPoints = 27;
 char Farm_Entrance_name[] = "Farm Entrance";
 
 // Function to generate road segment models for a specific CustomRoad
@@ -189,7 +187,165 @@ void GenerateRoadSegments(CustomRoad* road, float rWidth, Texture2D rTexture) {
             road->segmentCount = 0;
             road->isActive = false;
         }
-        TraceLog(LOG_INFO, "Path has less than 2 points or road is null, cannot generate segments.");
+        TraceLog(LOG_INFO, "Path has less than 2 points or road is null, cannot generate road.");
+        return;
+    }
+
+    // Unload previous segments if any
+    for (int i = 0; i < road->segmentCount; i++) {
+        if (road->segments[i].meshCount > 0) UnloadModel(road->segments[i]);
+    }
+
+    // We'll create a single mesh for the entire road
+    road->segmentCount = 1;
+
+    // Create a mesh structure
+    Mesh roadMesh = { 0 };
+    
+    // Two vertices per point (left and right edges of the road)
+    int vertexCount = road->numPoints * 2;
+    // Two triangles between each pair of points
+    int triangleCount = (road->numPoints - 1) * 2;
+    
+    roadMesh.vertexCount = vertexCount;
+    roadMesh.triangleCount = triangleCount;
+    
+    // Allocate memory for mesh data
+    roadMesh.vertices = (float*)MemAlloc(vertexCount * 3 * sizeof(float)); // x,y,z for each vertex
+    roadMesh.texcoords = (float*)MemAlloc(vertexCount * 2 * sizeof(float)); // u,v for each vertex
+    roadMesh.indices = (unsigned short*)MemAlloc(triangleCount * 3 * sizeof(unsigned short)); // 3 indices per triangle
+    roadMesh.normals = (float*)MemAlloc(vertexCount * 3 * sizeof(float)); // x,y,z normal per vertex
+    roadMesh.colors = NULL;
+    
+    TraceLog(LOG_INFO, "Creating ribbon-like road with %d points, %d vertices, %d triangles", 
+             road->numPoints, vertexCount, triangleCount);
+    
+    // Calculate total path length for texture mapping
+    float totalPathLength = 0;
+    float* segmentLengths = (float*)MemAlloc((road->numPoints - 1) * sizeof(float));
+    
+    for (int i = 0; i < road->numPoints - 1; i++) {
+        segmentLengths[i] = Vector3Distance(road->points[i], road->points[i+1]);
+        totalPathLength += segmentLengths[i];
+    }
+    
+    // Generate vertices along the path with their left and right offsets
+    float currentDistance = 0;
+    
+    for (int i = 0; i < road->numPoints; i++) {
+        Vector3 currentPoint = road->points[i];
+        Vector3 direction;
+        
+        // Calculate direction at this point
+        if (i < road->numPoints - 1) {
+            // Forward direction for all except the last point
+            direction = Vector3Normalize(Vector3Subtract(road->points[i+1], currentPoint));
+        } else if (i > 0) {
+            // For last point, use direction from previous point
+            direction = Vector3Normalize(Vector3Subtract(currentPoint, road->points[i-1]));
+        } else {
+            // Fallback for a single point (should not happen)
+            direction = (Vector3){ 0.0f, 0.0f, 1.0f };
+        }
+        
+        // Calculate perpendicular vector for road width
+        Vector3 perpendicular = { -direction.z, 0.0f, direction.x }; // Right perpendicular
+        
+        // Calculate left and right edge positions
+        Vector3 leftEdge = Vector3Subtract(currentPoint, Vector3Scale(perpendicular, roadWidth / 2.0f));
+        Vector3 rightEdge = Vector3Add(currentPoint, Vector3Scale(perpendicular, roadWidth / 2.0f));
+        
+        // Set consistent height slightly above ground
+        leftEdge.y = 0.2f;  // Slightly higher to prevent z-fighting
+        rightEdge.y = 0.2f;
+        
+        // Store left edge vertex
+        int leftIndex = i * 6;  // 2 vertices per point, 3 floats per vertex
+        roadMesh.vertices[leftIndex] = leftEdge.x;
+        roadMesh.vertices[leftIndex + 1] = leftEdge.y;
+        roadMesh.vertices[leftIndex + 2] = leftEdge.z;
+        
+        // Store right edge vertex
+        int rightIndex = leftIndex + 3;
+        roadMesh.vertices[rightIndex] = rightEdge.x;
+        roadMesh.vertices[rightIndex + 1] = rightEdge.y;
+        roadMesh.vertices[rightIndex + 2] = rightEdge.z;
+        
+        // Create UV mapping based on distance along path
+        // This ensures texture flows continuously along the path
+        float v = currentDistance / totalPathLength * 10.0f; // Scale for repetition
+        
+        // U coordinate goes from 0 (left) to 1 (right) across the road width
+        roadMesh.texcoords[i * 4] = 0.0f;     // Left edge
+        roadMesh.texcoords[i * 4 + 1] = v;    // V coordinate along path
+        roadMesh.texcoords[i * 4 + 2] = 1.0f; // Right edge
+        roadMesh.texcoords[i * 4 + 3] = v;    // V coordinate along path
+        
+        // Set normals (pointing up)
+        int normalIndex = i * 6;  // 2 vertices per point, 3 components per normal
+        for (int j = 0; j < 2; j++) {
+            roadMesh.normals[normalIndex + j*3] = 0.0f;     // X component
+            roadMesh.normals[normalIndex + j*3 + 1] = 1.0f; // Y component (up)
+            roadMesh.normals[normalIndex + j*3 + 2] = 0.0f; // Z component
+        }
+        
+        // Update distance along path (for texture mapping)
+        if (i < road->numPoints - 1) {
+            currentDistance += segmentLengths[i];
+        }
+    }
+    
+    // Create triangles connecting vertices
+    for (int i = 0; i < road->numPoints - 1; i++) {
+        // Each segment needs two triangles to connect adjacent points
+        int indexBase = i * 6;  // 2 triangles per segment * 3 indices per triangle
+        
+        // Vertex indices for this segment
+        unsigned short i0 = i * 2;         // Current point, left edge
+        unsigned short i1 = i * 2 + 1;     // Current point, right edge 
+        unsigned short i2 = (i + 1) * 2;   // Next point, left edge
+        unsigned short i3 = (i + 1) * 2 + 1; // Next point, right edge
+        
+        // First triangle: (current left, current right, next left)
+        roadMesh.indices[indexBase] = i0;
+        roadMesh.indices[indexBase + 1] = i1;
+        roadMesh.indices[indexBase + 2] = i2;
+        
+        // Second triangle: (current right, next right, next left)
+        roadMesh.indices[indexBase + 3] = i1;
+        roadMesh.indices[indexBase + 4] = i3;
+        roadMesh.indices[indexBase + 5] = i2;
+    }
+    
+    // Upload mesh to GPU
+    UploadMesh(&roadMesh, false);
+    
+    // Create model from mesh
+    road->segments[0] = LoadModelFromMesh(roadMesh);
+    
+    // Apply texture to the model
+    road->segments[0].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = roadTexture;
+    
+    // Set road properties for drawing
+    road->segmentPositions[0] = (Vector3){0, 0, 0}; // We'll draw at origin since vertices are in world space
+    road->segmentRotations[0] = 0.0f; 
+    road->isActive = true;
+    
+    // Free temporary resources
+    MemFree(segmentLengths);
+    
+    TraceLog(LOG_INFO, "Road ribbon created successfully for '%s' with %d points", 
+             road->name, road->numPoints);
+}
+
+// Function to generate a single smooth road mesh for a specific CustomRoad
+void GenerateSmoothRoad(CustomRoad* road, float rWidth, Texture2D rTexture) {
+    if (!road || road->numPoints < 2) {
+        if (road) {
+            road->segmentCount = 0;
+            road->isActive = false;
+        }
+        TraceLog(LOG_INFO, "Path has less than 2 points or road is null, cannot generate smooth road.");
         return;
     }
 
@@ -198,62 +354,126 @@ void GenerateRoadSegments(CustomRoad* road, float rWidth, Texture2D rTexture) {
         if (road->segments[i].meshCount > 0) UnloadModel(road->segments[i]);
     }
 
-    road->segmentCount = road->numPoints - 1;
-    if (road->segmentCount >= MAX_PATH_POINTS) { // Should be MAX_PATH_POINTS - 1
-        road->segmentCount = MAX_PATH_POINTS - 2; // Ensure valid indexing for segments array
-        TraceLog(LOG_WARNING, "Path too long for road '%s', truncated to %d segments.", road->name, road->segmentCount);
-    }
-
-    TraceLog(LOG_INFO, "Generating %d segments for road '%s'.", road->segmentCount, road->name);
-
-    for (int i = 0; i < road->segmentCount; i++) {
-        Vector3 p1 = road->points[i];
-        Vector3 p2 = road->points[i+1];
-
-        p1.y = 0.15f;
-        p2.y = 0.15f;
-
-        Vector3 segmentVector = Vector3Subtract(p2, p1);
-        float segmentLength = Vector3Length(segmentVector);
-
-        if (segmentLength < 0.01f) {
-            TraceLog(LOG_WARNING, "Segment %d for road '%s' is too short.", i, road->name);
-            Mesh emptyMesh = GenMeshPlane(0.01f, rWidth, 1, 1);
-            road->segments[i] = LoadModelFromMesh(emptyMesh);
-            road->segmentPositions[i] = p1;
-            road->segmentRotations[i] = 0;
+    // We will create a SINGLE mesh for the entire road
+    Mesh roadMesh = { 0 };
+    
+    // Two vertices per point (left and right edges of the road)
+    int vertexCount = road->numPoints * 2;
+    // Two triangles between each pair of points
+    int triangleCount = (road->numPoints - 1) * 2;
+    
+    roadMesh.vertexCount = vertexCount;
+    roadMesh.triangleCount = triangleCount;
+    
+    // Allocate memory for all the mesh data
+    roadMesh.vertices = (float*)MemAlloc(vertexCount * 3 * sizeof(float)); // x,y,z for each vertex
+    roadMesh.texcoords = (float*)MemAlloc(vertexCount * 2 * sizeof(float)); // u,v for each vertex
+    roadMesh.colors = NULL; // No vertex colors
+    roadMesh.indices = (unsigned short*)MemAlloc(triangleCount * 3 * sizeof(unsigned short)); // 3 indices per triangle
+    roadMesh.normals = (float*)MemAlloc(vertexCount * 3 * sizeof(float)); // x,y,z normals
+    
+    // Generate the road geometry
+    for (int i = 0; i < road->numPoints; i++) {
+        Vector3 currentPoint = road->points[i];
+        Vector3 direction;
+        
+        // Calculate segment direction
+        if (i < road->numPoints - 1) {
+            // Looking forward for all points except the last
+            direction = Vector3Normalize(Vector3Subtract(road->points[i + 1], currentPoint));
         } else {
-            road->segmentPositions[i] = Vector3Scale(Vector3Add(p1, p2), 0.5f);
-            road->segmentRotations[i] = atan2f(segmentVector.x, segmentVector.z) * RAD2DEG;
-
-            Mesh segmentMesh = GenMeshPlane(segmentLength, rWidth, 1, 1);
-            for (int v = 0; v < segmentMesh.vertexCount; v++) {
-                segmentMesh.texcoords[v*2] *= segmentLength / rWidth;
-            }
-            road->segments[i] = LoadModelFromMesh(segmentMesh);
+            // For the last point, use the direction from the previous point
+            direction = Vector3Normalize(Vector3Subtract(currentPoint, road->points[i - 1]));
         }
         
-        if (road->segments[i].meshCount > 0) {
-             road->segments[i].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = rTexture;
-        } else {
-            TraceLog(LOG_ERROR, "Failed to load model for segment %d of road '%s'", i, road->name);
+        // Calculate road edges (perpendicular to direction)
+        Vector3 right = { direction.z, 0, -direction.x }; // Right-hand perpendicular vector
+        Vector3 leftEdge = Vector3Subtract(currentPoint, Vector3Scale(right, rWidth / 2));
+        Vector3 rightEdge = Vector3Add(currentPoint, Vector3Scale(right, rWidth / 2));
+        
+        // Ensure consistent height
+        leftEdge.y = 0.15f;
+        rightEdge.y = 0.15f;
+        
+        // Add vertices for left and right edges of the road
+        int vBase = i * 6; // 3 floats per vertex, 2 vertices per point
+        
+        // Left vertex
+        roadMesh.vertices[vBase] = leftEdge.x;
+        roadMesh.vertices[vBase + 1] = leftEdge.y;
+        roadMesh.vertices[vBase + 2] = leftEdge.z;
+        
+        // Right vertex
+        roadMesh.vertices[vBase + 3] = rightEdge.x;
+        roadMesh.vertices[vBase + 4] = rightEdge.y;
+        roadMesh.vertices[vBase + 5] = rightEdge.z;
+        
+        // Texture coordinates - map the texture along the path
+        float t = (float)i / (road->numPoints - 1); // Normalized distance along the path
+        int tcBase = i * 4; // 2 floats per vertex, 2 vertices per point
+        
+        roadMesh.texcoords[tcBase] = 0.0f; // Left edge U (0 to 1 across the road width)
+        roadMesh.texcoords[tcBase + 1] = t * 10.0f; // V coordinate (tiled along the road length)
+        roadMesh.texcoords[tcBase + 2] = 1.0f; // Right edge U
+        roadMesh.texcoords[tcBase + 3] = t * 10.0f; // V coordinate
+        
+        // Set normals pointing up
+        int nBase = i * 6; // 3 floats per normal, 2 normals per point
+        for (int j = 0; j < 2; j++) {
+            roadMesh.normals[nBase + (j*3)] = 0.0f;
+            roadMesh.normals[nBase + (j*3) + 1] = 1.0f;
+            roadMesh.normals[nBase + (j*3) + 2] = 0.0f;
         }
     }
+    
+    // Create triangles between points
+    for (int i = 0; i < road->numPoints - 1; i++) {
+        int iBase = i * 6; // 3 indices per triangle, 2 triangles per segment
+        
+        // Triangle 1: (i,left) -> (i,right) -> (i+1,left)
+        roadMesh.indices[iBase] = i * 2; // Current point, left edge
+        roadMesh.indices[iBase + 1] = i * 2 + 1; // Current point, right edge
+        roadMesh.indices[iBase + 2] = (i + 1) * 2; // Next point, left edge
+        
+        // Triangle 2: (i,right) -> (i+1,right) -> (i+1,left)
+        roadMesh.indices[iBase + 3] = i * 2 + 1; // Current point, right edge
+        roadMesh.indices[iBase + 4] = (i + 1) * 2 + 1; // Next point, right edge
+        roadMesh.indices[iBase + 5] = (i + 1) * 2; // Next point, left edge
+    }
+    
+    // Upload mesh to GPU
+    UploadMesh(&roadMesh, false);
+    
+    // Create model from mesh
+    road->segments[0] = LoadModelFromMesh(roadMesh);
+    road->segments[0].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = rTexture;
+    
+    // Set as single-segment road
+    road->segmentCount = 1;
     road->isActive = true;
-    TraceLog(LOG_INFO, "Segments generated successfully for road '%s'.", road->name);
+    
+    TraceLog(LOG_INFO, "Single-mesh road generated successfully for road '%s' with %d points.", 
+             road->name, road->numPoints);
 }
 
 // Function to draw all active custom roads
 void DrawAllCustomRoads() {
     for (int i = 0; i < totalCustomRoadsCount; i++) {
         if (allCustomRoads[i].isActive && allCustomRoads[i].segmentCount > 0) {
+            // Draw each segment individually
             for (int j = 0; j < allCustomRoads[i].segmentCount; j++) {
                 if (allCustomRoads[i].segments[j].meshCount > 0) {
+                    Vector3 drawPos = allCustomRoads[i].segmentPositions[j];
+                    // Small Y offset to prevent Z-fighting with ground
+                    drawPos.y += 0.01f;
+                    
+                    // Draw the segment at its position with its rotation
                     DrawModelEx(allCustomRoads[i].segments[j], 
-                                allCustomRoads[i].segmentPositions[j], 
-                                (Vector3){0.0f, 1.0f, 0.0f}, 
+                                drawPos, 
+                                (Vector3){0.0f, 1.0f, 0.0f}, // Rotation around Y-axis
                                 allCustomRoads[i].segmentRotations[j], 
-                                Vector3One(), WHITE);
+                                Vector3One(), // Scale of 1
+                                WHITE);
                 }
             }
         }
@@ -1067,9 +1287,10 @@ int main(void)
 
     // --- Road Initialization ---
     // Load road texture
-    roadTexture = LoadTexture("textures/rocky_trail_diff_8k.jpg"); // Make sure you have this texture
+    roadTexture = LoadTexture("textures/sandstone_cracks_diff_8k.jpg"); // Make sure you have this texture
     GenTextureMipmaps(&roadTexture); // Ensure mipmaps are generated
-    SetTextureFilter(roadTexture, TEXTURE_FILTER_ANISOTROPIC_16X);
+    // Try different texture filters for best visual quality
+    SetTextureFilter(roadTexture, TEXTURE_FILTER_TRILINEAR); // Experiment: try BILINEAR, TRILINEAR, or ANISOTROPIC_16X
     SetTextureWrap(roadTexture, TEXTURE_WRAP_REPEAT);
 
     // Calculate road parameters
@@ -1104,8 +1325,10 @@ int main(void)
         newRoad->numPoints = Farm_Entrance_numPoints;
         // Use memcpy to copy the points array
         memcpy(newRoad->points, Farm_Entrance_points, sizeof(Vector3) * newRoad->numPoints);
-        GenerateRoadSegments(newRoad, roadWidth, roadTexture); // Generate the visuals
+        // Use individual segments to create the road path
+        GenerateRoadSegments(newRoad, roadWidth, roadTexture);
         totalCustomRoadsCount++; // Increment the count of active roads
+        TraceLog(LOG_INFO, "Created road '%s' with %d points", newRoad->name, newRoad->numPoints);
     }
     
 
@@ -1329,7 +1552,7 @@ DrawText("- E: Export Path to Console (after stopping recording)", 15, 255, 10, 
         DrawText(TextFormat("- Up: (%06.3f, %06.3f, %06.3f)", camera.up.x, camera.up.y, camera.up.z), 610, 90, 10, BLACK);
 
         // Animal count display
-        DrawRectangle(600, 110, 195, 100, Fade(LIGHTGREEN, 0.5f));
+        DrawRectangle(600, 110, 195,  100, Fade(LIGHTGREEN, 0.5f));
         DrawRectangleLines(600, 110, 195, 100, GREEN);
         
         DrawText("Animal Count:", 610, 120, 10, BLACK);
