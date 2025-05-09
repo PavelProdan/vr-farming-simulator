@@ -10,7 +10,7 @@
 #include <string.h>  // For bool type
 #define MAX_COLUMNS 20
 #define MAX_ANIMALS 100
-#define MAX_BUILDINGS 2  // For barn and horse barn
+#define MAX_BUILDINGS 24  // For barn, horse barn, and 22 fence segments for the enclosure
 #define MAX_CLOUDS 5000   // Increased number of clouds
 #define MAX_PLANTS 1000 // Maximum number of plants (increased from 200)
 #define MAX_CLOUD_TYPES 1 // Number of different cloud types/textures
@@ -32,6 +32,18 @@
 // Define LIGHTGREEN color if it's not defined in raylib
 #ifndef LIGHTGREEN
     #define LIGHTGREEN (Color){ 200, 255, 200, 255 }
+#endif
+
+//#define DEVMODE
+
+#ifdef DEVMODE
+    #define NUMBER_OF_TREES 1
+    #define NUMBER_OF_GRASS 1
+    #define NUMBER_OF_FLOWERS 1
+#else
+    #define NUMBER_OF_TREES 160
+    #define NUMBER_OF_GRASS 700
+    #define NUMBER_OF_FLOWERS 300
 #endif
 
 // Plant types enum
@@ -1441,7 +1453,7 @@ int main(void)
     // float natureSceneScale2 = 1.0f;
 
     // Spawn plants (numbers increased)
-    int numberOfTrees = 160; // Increased from 50
+    int numberOfTrees = NUMBER_OF_TREES; // Increased from 50
     for (int i = 0; i < numberOfTrees; i++) {
         Vector3 pos = GetRandomPlantPosition(FIXED_TERRAIN_SIZE);
         float scale = GetRandomValue(80, 150) / 100.0f; // Random scale between 0.8 and 1.5
@@ -1449,7 +1461,7 @@ int main(void)
         SpawnPlant(PLANT_TREE, pos, scale, rotation);
     }
 
-    int numberOfGrassPatches = 700; // Increased from 100
+    int numberOfGrassPatches = NUMBER_OF_GRASS; // Increased from 100
     for (int i = 0; i < numberOfGrassPatches; i++) {
         Vector3 pos = GetRandomPlantPosition(FIXED_TERRAIN_SIZE);
         // Ensure grass is slightly above ground to avoid z-fighting, if necessary
@@ -1459,7 +1471,7 @@ int main(void)
         SpawnPlant(PLANT_GRASS, pos, scale, rotation);
     }
 
-    int numberOfFlowers = 320; // Increased from 80
+    int numberOfFlowers = NUMBER_OF_FLOWERS; // Increased from 80
     for (int i = 0; i < numberOfFlowers; i++) {
         Vector3 pos = GetRandomPlantPosition(FIXED_TERRAIN_SIZE);
         // pos.y = 0.02f;
@@ -1502,6 +1514,87 @@ int main(void)
     roadModel = LoadModelFromMesh(roadMesh);
     roadModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = roadTexture;
     // --- End Road Initialization ---
+
+    // --- Enclosure Initialization ---
+    // NOTE: Ensure MAX_BUILDINGS is large enough for these fences (at least 24 total buildings).
+    const int fenceSegmentsSide1 = 5; // Number of fence segments for the first pair of sides
+    const int fenceSegmentsSide2 = 6; // Number of fence segments for the second pair of sides
+    const float FENCE_MODEL_EFFECTIVE_LENGTH = 2.0f; // Effective length of one fence segment. Adjust based on Fence.glb!
+    const float FENCE_MODEL_SCALE = 0.2f; // Scale of the fence model. Adjust if needed.
+    Vector3 enclosureOrigin = (Vector3){ -35.0f, 0.0f, -20.0f }; // Starting corner of the enclosure.
+
+    // NEW: Calculate half length for positioning, assuming model pivot is at its center
+    const float halfFenceLength = FENCE_MODEL_EFFECTIVE_LENGTH / 2.0f;
+
+    int currentBuildingIdx = 2; // Start after barn (index 0) and horse_barn (index 1)
+    Vector3 currentFencePos = enclosureOrigin; // This tracks the current CORNER
+    float currentFenceRot = 0.0f;
+
+    // Side 1: Along +X
+    currentFenceRot = 0.0f;
+    for (int i = 0; i < fenceSegmentsSide1; i++) {
+        if (currentBuildingIdx >= MAX_BUILDINGS) {
+            TraceLog(LOG_WARNING, "MAX_BUILDINGS reached, cannot place all fence segments.");
+            break;
+        }
+        buildings[currentBuildingIdx].model = LoadModel("buildings/Fence.glb");
+        // MODIFIED POSITIONING: Place center of fence half its length from the current corner
+        buildings[currentBuildingIdx].position = (Vector3){ currentFencePos.x + halfFenceLength, currentFencePos.y, currentFencePos.z };
+        buildings[currentBuildingIdx].scale = FENCE_MODEL_SCALE;
+        buildings[currentBuildingIdx].rotationAngle = currentFenceRot;
+        currentBuildingIdx++;
+        currentFencePos.x += FENCE_MODEL_EFFECTIVE_LENGTH; // Advance corner to the end of this segment
+    }
+
+    // Side 2: Along +Z
+    currentFenceRot = 90.0f;
+    for (int i = 0; i < fenceSegmentsSide2; i++) {
+        if (currentBuildingIdx >= MAX_BUILDINGS) {
+            TraceLog(LOG_WARNING, "MAX_BUILDINGS reached, cannot place all fence segments.");
+            break;
+        }
+        buildings[currentBuildingIdx].model = LoadModel("buildings/Fence.glb");
+        // MODIFIED POSITIONING: Place center of fence half its length from the current corner
+        buildings[currentBuildingIdx].position = (Vector3){ currentFencePos.x, currentFencePos.y, currentFencePos.z + halfFenceLength };
+        buildings[currentBuildingIdx].scale = FENCE_MODEL_SCALE;
+        buildings[currentBuildingIdx].rotationAngle = currentFenceRot;
+        currentBuildingIdx++;
+        currentFencePos.z += FENCE_MODEL_EFFECTIVE_LENGTH; // Advance corner to the end of this segment
+    }
+
+    // Side 3: Along -X (model's local X, rotated 180 deg, points to world -X)
+    currentFenceRot = 180.0f;
+    for (int i = 0; i < fenceSegmentsSide1; i++) {
+        if (currentBuildingIdx >= MAX_BUILDINGS) {
+            TraceLog(LOG_WARNING, "MAX_BUILDINGS reached, cannot place all fence segments.");
+            break;
+        }
+        buildings[currentBuildingIdx].model = LoadModel("buildings/Fence.glb");
+        // MODIFIED POSITIONING: Place center of fence half its length from the current corner
+        buildings[currentBuildingIdx].position = (Vector3){ currentFencePos.x - halfFenceLength, currentFencePos.y, currentFencePos.z };
+        buildings[currentBuildingIdx].scale = FENCE_MODEL_SCALE;
+        buildings[currentBuildingIdx].rotationAngle = currentFenceRot;
+        currentBuildingIdx++;
+        currentFencePos.x -= FENCE_MODEL_EFFECTIVE_LENGTH; // Advance corner to the end of this segment
+    }
+
+    // Side 4: Along -Z (model's local X, rotated 270 deg, points to world -Z)
+    currentFenceRot = 270.0f;
+    for (int i = 0; i < fenceSegmentsSide2; i++) {
+        if (currentBuildingIdx >= MAX_BUILDINGS) {
+            TraceLog(LOG_WARNING, "MAX_BUILDINGS reached, cannot place all fence segments.");
+            break;
+        }
+        buildings[currentBuildingIdx].model = LoadModel("buildings/Fence.glb");
+        // MODIFIED POSITIONING: Place center of fence half its length from the current corner
+        buildings[currentBuildingIdx].position = (Vector3){ currentFencePos.x, currentFencePos.y, currentFencePos.z - halfFenceLength };
+        buildings[currentBuildingIdx].scale = FENCE_MODEL_SCALE;
+        buildings[currentBuildingIdx].rotationAngle = currentFenceRot;
+        currentBuildingIdx++;
+        currentFencePos.z -= FENCE_MODEL_EFFECTIVE_LENGTH; // Advance corner to the end of this segment
+    }
+    // --- End Enclosure Initialization ---
+
     if (totalCustomRoadsCount < MAX_CUSTOM_ROADS && Farm_Entrance_numPoints > 1) {
         CustomRoad* newRoad = &allCustomRoads[totalCustomRoadsCount];
         snprintf(newRoad->name, sizeof(newRoad->name), "%s", Farm_Entrance_name);
