@@ -65,6 +65,7 @@ typedef struct {
 // Function prototypes
 bool IsCollisionWithBuilding(Vector3 position, float radius, int* buildingIndex);
 bool IsCollisionWithAnimal(Vector3 position, float radius, int* animalIndex);
+bool IsPositionOnRoad(Vector3 position, float roadWidth); // New function prototype
 void InitPlant(Plant* plant, PlantType type, Vector3 position, float scale, float rotation);
 void SpawnPlant(PlantType type, Vector3 position, float scale, float rotation);
 Vector3 GetRandomPlantPosition(float terrainSize);
@@ -142,6 +143,31 @@ Building buildings[MAX_BUILDINGS];
 Plant plants[MAX_PLANTS];
 int plantCount = 0;
 
+// Moved road-related global variables and definitions
+Model roadModel;
+Texture2D roadTexture;
+Vector3 roadPosition;
+float roadRotationAngle;
+float roadLength;
+float roadWidth = 4.0f; 
+
+#define MAX_PATH_POINTS 200       // Maximum points in a recorded path
+#define MAX_CUSTOM_ROADS 10
+
+typedef struct {
+    Vector3 points[MAX_PATH_POINTS];
+    int numPoints;
+    Model segments[MAX_PATH_POINTS - 1]; // MAX_PATH_POINTS-1 segments
+    Vector3 segmentPositions[MAX_PATH_POINTS - 1];
+    float segmentRotations[MAX_PATH_POINTS - 1];
+    int segmentCount;
+    bool isActive; // Is this road currently being drawn/used?
+    char name[64]; // Optional name for the road
+} CustomRoad;
+
+CustomRoad allCustomRoads[MAX_CUSTOM_ROADS];
+int totalCustomRoadsCount = 0; // How many roads are currently defined
+
 // Function to initialize a new plant
 void InitPlant(Plant* plant, PlantType type, Vector3 position, float scale, float rotation) {
     plant->type = type;
@@ -195,37 +221,52 @@ void SpawnPlant(PlantType type, Vector3 position, float scale, float rotation) {
 // Helper to generate a random position for spawning plants
 Vector3 GetRandomPlantPosition(float terrainSize) { // terrainSize argument is kept for signature consistency
     Vector3 position;
-    // Define a larger area for plant spawning
     float minX = -100.0f; 
     float maxX = 100.0f;
     float minZ = -100.0f;
     float maxZ = 100.0f;
-    int maxAttempts = 20; // Try a few times to find a non-colliding spot
+    int maxAttempts = 100; // Increased attempts from 50 to 100
 
     for (int attempt = 0; attempt < maxAttempts; attempt++) {
-        // Generate position within the defined smaller area
         position.x = GetRandomValue(minX * 100, maxX * 100) / 100.0f;
         position.z = GetRandomValue(minZ * 100, maxZ * 100) / 100.0f;
         position.y = 0.0f; // On the ground
 
         bool collisionWithBuilding = false;
         for (int i = 0; i < MAX_BUILDINGS; i++) {
-            // Check distance to the center of the building.
-            // Plants can be spawned closer, e.g., 3.0f units from building origin.
-            if (Vector3Distance(position, buildings[i].position) < 3.0f) { 
+            if (buildings[i].model.meshCount == 0) continue; // Skip uninitialized buildings
+
+            float exclusionRadiusForPlant;
+            const float FENCE_MODEL_SCALE_CONST = 0.2f; // From main()
+
+            if (i == 0) { // barn.glb (index 0, scale 0.05f)
+                exclusionRadiusForPlant = 8.0f; // Increased from 7.0f
+            } else if (i == 1) { // horse_barn.glb (index 1, scale 0.5f)
+                exclusionRadiusForPlant = 7.0f; // Increased from 4.5f
+            } else if (i == 2) { // Bank.glb (index 2, scale 0.0002f)
+                exclusionRadiusForPlant = 12.0f; // Increased from 8.0f
+            } else if (i >= 3 && buildings[i].scale == FENCE_MODEL_SCALE_CONST) { // Likely a fence segment
+                exclusionRadiusForPlant = 1.5f; // Half-length (1.0f) + 0.5f buffer
+            } else { 
+                // Generic fallback for other unknown buildings
+                exclusionRadiusForPlant = buildings[i].scale * 3.0f + 1.5f; // Base scaled size + buffer
+                if (exclusionRadiusForPlant < 3.0f) exclusionRadiusForPlant = 3.0f; // Increased minimum from 2.0f
+            }
+
+            if (Vector3Distance(position, buildings[i].position) < exclusionRadiusForPlant) {
                 collisionWithBuilding = true;
                 break;
             }
         }
 
-        if (!collisionWithBuilding) {
+        bool onRoad = IsPositionOnRoad(position, roadWidth); // roadWidth is global
+
+        if (!collisionWithBuilding && !onRoad) {
             return position; // Found a good spot
         }
     }
 
-    // If maxAttempts reached, return the last generated position.
-    // This might place a plant inside a building if all attempts failed in the constrained area.
-    TraceLog(LOG_WARNING, "GetRandomPlantPosition: Could not find a non-colliding position after %d attempts near buildings. Placing at last attempted spot.", maxAttempts);
+    TraceLog(LOG_WARNING, "GetRandomPlantPosition: Could not find a non-colliding position after %d attempts. Placing at last attempted spot.", maxAttempts);
     return position;
 }
 
@@ -269,29 +310,38 @@ void UnloadPlantResources(void) {
 // Global array of terrain chunks
 TerrainChunk terrainChunks[MAX_TERRAIN_CHUNKS];
 
-Model roadModel;
-Texture2D roadTexture;
-Vector3 roadPosition;
-float roadRotationAngle;
-float roadLength;
-float roadWidth = 4.0f; 
+// New function to check if a position is on any road
+bool IsPositionOnRoad(Vector3 position, float rWidth) {
+    for (int i = 0; i < totalCustomRoadsCount; i++) {
+        if (allCustomRoads[i].isActive && allCustomRoads[i].numPoints >= 2) {
+            // For ribbon-style roads (single mesh), we check against the original points
+            // This is a simplification; true collision with a mesh is more complex.
+            // We'll check distance to line segments formed by the road points.
+            for (int j = 0; j < allCustomRoads[i].numPoints - 1; j++) {
+                Vector3 p1 = allCustomRoads[i].points[j];
+                Vector3 p2 = allCustomRoads[i].points[j+1];
 
-#define MAX_PATH_POINTS 200       // Maximum points in a recorded path
-#define MAX_CUSTOM_ROADS 10
+                // Project position onto the line segment
+                Vector3 segmentVec = Vector3Subtract(p2, p1);
+                Vector3 pointVec = Vector3Subtract(position, p1);
 
-typedef struct {
-    Vector3 points[MAX_PATH_POINTS];
-    int numPoints;
-    Model segments[MAX_PATH_POINTS - 1]; // MAX_PATH_POINTS-1 segments
-    Vector3 segmentPositions[MAX_PATH_POINTS - 1];
-    float segmentRotations[MAX_PATH_POINTS - 1];
-    int segmentCount;
-    bool isActive; // Is this road currently being drawn/used?
-    char name[64]; // Optional name for the road
-} CustomRoad;
+                float segmentLengthSq = Vector3LengthSqr(segmentVec);
+                if (segmentLengthSq == 0.0f) continue; // Segment has zero length
 
-CustomRoad allCustomRoads[MAX_CUSTOM_ROADS];
-int totalCustomRoadsCount = 0; // How many roads are currently defined
+                float t = Vector3DotProduct(pointVec, segmentVec) / segmentLengthSq;
+                t = Clamp(t, 0.0f, 1.0f); // Clamp t to be on the segment
+
+                Vector3 closestPointOnSegment = Vector3Add(p1, Vector3Scale(segmentVec, t));
+                
+                // Check distance from the plant's position to the closest point on the segment's centerline
+                if (Vector3Distance(position, closestPointOnSegment) < (rWidth / 2.0f) + 1.0f) { // Increased buffer from 0.5f to 1.0f
+                    return true; // Position is on this road segment
+                }
+            }
+        }
+    }
+    return false; // Position is not on any road
+}
 
 // Buffer for the path currently being recorded
 bool isRecordingPath = false;
@@ -1422,9 +1472,19 @@ int main(void)
     // Change the filename to match your downloaded texture
     Texture2D terrainTexture = LoadTexture("textures/rocky_terrain_02_diff_8k.jpg");
 
-    // Optimize texture quality
+    // Load road texture
+    roadTexture = LoadTexture("textures/rocky_trail_diff_8k.jpg"); // Initialize global roadTexture
+    if (roadTexture.id == 0) { // Check if road texture failed to load
+        TraceLog(LOG_ERROR, "Failed to load road texture: textures/rocky_trail_diff_8k.jpg");
+    }
+
+    // Optimize texture quality for terrain
     SetTextureFilter(terrainTexture, TEXTURE_FILTER_ANISOTROPIC_16X);
     SetTextureWrap(terrainTexture, TEXTURE_WRAP_REPEAT);
+
+    // Optimize texture quality for road
+    SetTextureFilter(roadTexture, TEXTURE_FILTER_ANISOTROPIC_16X);
+    SetTextureWrap(roadTexture, TEXTURE_WRAP_REPEAT);
 
     // Initialize all terrain chunks at once with fixed layout
     InitAllTerrainChunks(terrainTexture);
@@ -1511,7 +1571,21 @@ int main(void)
     // Vector3 natureScenePosition2 = { -25.0f, 0.0f, -50.0f }; // Near the first nature scene
     // float natureSceneScale2 = 1.0f;
 
-       // Spawn plants (numbers increased)
+    // --- Custom Road Initialization ---
+    // Example: Creating a custom road from the farm entrance points
+    if (totalCustomRoadsCount < MAX_CUSTOM_ROADS && Farm_Entrance_numPoints > 1) {
+        CustomRoad* newRoad = &allCustomRoads[totalCustomRoadsCount];
+        snprintf(newRoad->name, sizeof(newRoad->name), "%s", Farm_Entrance_name);
+        newRoad->numPoints = Farm_Entrance_numPoints;
+        // Use memcpy to copy the points array
+        memcpy(newRoad->points, Farm_Entrance_points, sizeof(Vector3) * newRoad->numPoints);
+        // Use individual segments to create the road path
+        GenerateRoadSegments(newRoad, roadWidth, roadTexture);
+        totalCustomRoadsCount++; // Increment the count of active roads
+        TraceLog(LOG_INFO, "Created road '%s' with %d points", newRoad->name, newRoad->numPoints);
+    }
+    
+    // Spawn plants (numbers increased)
     int numberOfTrees = NUMBER_OF_TREES; // Increased from 50
     for (int i = 0; i < numberOfTrees; i++) {
         Vector3 pos = GetRandomPlantPosition(FIXED_TERRAIN_SIZE);
@@ -1520,15 +1594,9 @@ int main(void)
         SpawnPlant(PLANT_TREE, pos, scale, rotation);
     }
 
-   
-
     int numberOfGrassPatches = NUMBER_OF_GRASS; // Increased from 100
     for (int i = 0; i < numberOfGrassPatches; i++) {
         Vector3 pos = GetRandomPlantPosition(FIXED_TERRAIN_SIZE);
-        // Ensure grass is slightly above ground to avoid z-fighting, if necessary
-        // pos.y = 0.05f; 
-        
-               
         float scale = GetRandomValue(50, 120) / 100.0f; // Random scale
         float rotation = GetRandomValue(0, 360);
         SpawnPlant(PLANT_GRASS, pos, scale, rotation);
@@ -1537,7 +1605,6 @@ int main(void)
     int numberOfFlowers = NUMBER_OF_FLOWERS; // Increased from 80
     for (int i = 0; i < numberOfFlowers; i++) {
         Vector3 pos = GetRandomPlantPosition(FIXED_TERRAIN_SIZE);
-        // pos.y = 0.02f;
         float scale = GetRandomValue(70, 130) / 100.0f; // Random scale
         float rotation = GetRandomValue(0, 360);
         SpawnPlant(PLANT_FLOWER, pos, scale, rotation);
@@ -1558,134 +1625,6 @@ int main(void)
         float rotation = GetRandomValue(0, 360);
         SpawnPlant(PLANT_BUSH_WITH_FLOWERS, pos, scale, rotation);
     }
-
-    // --- Road Initialization ---
-    // Load road texture
-    roadTexture = LoadTexture("textures/rocky_trail_diff_8k.jpg"); // Make sure you have this texture
-    GenTextureMipmaps(&roadTexture); // Ensure mipmaps are generated
-    // Try different texture filters for best visual quality
-    SetTextureFilter(roadTexture, TEXTURE_FILTER_TRILINEAR); // Experiment: try BILINEAR, TRILINEAR, or ANISOTROPIC_16X
-    SetTextureWrap(roadTexture, TEXTURE_WRAP_REPEAT);
-
-    // Calculate road parameters
-    Vector3 building1Pos = buildings[0].position;
-    Vector3 building2Pos = buildings[1].position;
-
-    // Midpoint between buildings
-    roadPosition = Vector3Scale(Vector3Add(building1Pos, building2Pos), 0.5f);
-    roadPosition.y = 0.1f; // Slightly above ground to prevent z-fighting
-
-    // Vector from building 1 to building 2
-    Vector3 roadVector = Vector3Subtract(building2Pos, building1Pos);
-    roadLength = Vector3Length(roadVector);
-
-    // Angle of the road (rotation around Y axis)
-    roadRotationAngle = atan2f(roadVector.x, roadVector.z) * RAD2DEG;
-
-    // Generate road mesh (Plane width is road length, Plane height is road width)
-    Mesh roadMesh = GenMeshPlane(roadLength, roadWidth, 1, 1);
-
-    // Adjust UVs for texture tiling along the length
-    for (int i = 0; i < roadMesh.vertexCount; i++) {
-        roadMesh.texcoords[i*2] *= roadLength / roadWidth; // Tile texture based on length/width ratio
-    }
-
-    roadModel = LoadModelFromMesh(roadMesh);
-    roadModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = roadTexture;
-    // --- End Road Initialization ---
-
-    // --- Enclosure Initialization ---
-    // NOTE: Ensure MAX_BUILDINGS is large enough for these fences (at least 24 total buildings).
-    const int fenceSegmentsSide1 = 5; // Number of fence segments for the first pair of sides
-    const int fenceSegmentsSide2 = 6; // Number of fence segments for the second pair of sides
-    const float FENCE_MODEL_EFFECTIVE_LENGTH = 2.0f; // Effective length of one fence segment. Adjust based on Fence.glb!
-    const float FENCE_MODEL_SCALE = 0.2f; // Scale of the fence model. Adjust if needed.
-    Vector3 enclosureOrigin = (Vector3){ -35.0f, 0.0f, -20.0f }; // Starting corner of the enclosure.
-
-    // NEW: Calculate half length for positioning, assuming model pivot is at its center
-    const float halfFenceLength = FENCE_MODEL_EFFECTIVE_LENGTH / 2.0f;
-
-    int currentBuildingIdx = 3; // Start after barn (index 0), horse_barn (index 1), and bank (index 2)
-    Vector3 currentFencePos = enclosureOrigin; // This tracks the current CORNER
-    float currentFenceRot = 0.0f;
-
-    // Side 1: Along +X
-    currentFenceRot = 0.0f;
-    for (int i = 0; i < fenceSegmentsSide1; i++) {
-        if (currentBuildingIdx >= MAX_BUILDINGS) {
-            TraceLog(LOG_WARNING, "MAX_BUILDINGS reached, cannot place all fence segments.");
-            break;
-        }
-        buildings[currentBuildingIdx].model = LoadModel("buildings/Fence.glb");
-        // MODIFIED POSITIONING: Place center of fence half its length from the current corner
-        buildings[currentBuildingIdx].position = (Vector3){ currentFencePos.x + halfFenceLength, currentFencePos.y, currentFencePos.z };
-        buildings[currentBuildingIdx].scale = FENCE_MODEL_SCALE;
-        buildings[currentBuildingIdx].rotationAngle = currentFenceRot;
-        currentBuildingIdx++;
-        currentFencePos.x += FENCE_MODEL_EFFECTIVE_LENGTH; // Advance corner to the end of this segment
-    }
-
-    // Side 2: Along +Z
-    currentFenceRot = 90.0f;
-    for (int i = 0; i < fenceSegmentsSide2; i++) {
-        if (currentBuildingIdx >= MAX_BUILDINGS) {
-            TraceLog(LOG_WARNING, "MAX_BUILDINGS reached, cannot place all fence segments.");
-            break;
-        }
-        buildings[currentBuildingIdx].model = LoadModel("buildings/Fence.glb");
-        // MODIFIED POSITIONING: Place center of fence half its length from the current corner
-        buildings[currentBuildingIdx].position = (Vector3){ currentFencePos.x, currentFencePos.y, currentFencePos.z + halfFenceLength };
-        buildings[currentBuildingIdx].scale = FENCE_MODEL_SCALE;
-        buildings[currentBuildingIdx].rotationAngle = currentFenceRot;
-        currentBuildingIdx++;
-        currentFencePos.z += FENCE_MODEL_EFFECTIVE_LENGTH; // Advance corner to the end of this segment
-    }
-
-    // Side 3: Along -X (model's local X, rotated 180 deg, points to world -X)
-    currentFenceRot = 180.0f;
-    for (int i = 0; i < fenceSegmentsSide1; i++) {
-        if (currentBuildingIdx >= MAX_BUILDINGS) {
-            TraceLog(LOG_WARNING, "MAX_BUILDINGS reached, cannot place all fence segments.");
-            break;
-        }
-        buildings[currentBuildingIdx].model = LoadModel("buildings/Fence.glb");
-        // MODIFIED POSITIONING: Place center of fence half its length from the current corner
-        buildings[currentBuildingIdx].position = (Vector3){ currentFencePos.x - halfFenceLength, currentFencePos.y, currentFencePos.z };
-        buildings[currentBuildingIdx].scale = FENCE_MODEL_SCALE;
-        buildings[currentBuildingIdx].rotationAngle = currentFenceRot;
-        currentBuildingIdx++;
-        currentFencePos.x -= FENCE_MODEL_EFFECTIVE_LENGTH; // Advance corner to the end of this segment
-    }
-
-    // Side 4: Along -Z (model's local X, rotated 270 deg, points to world -Z)
-    currentFenceRot = 270.0f;
-    for (int i = 0; i < fenceSegmentsSide2; i++) {
-        if (currentBuildingIdx >= MAX_BUILDINGS) {
-            TraceLog(LOG_WARNING, "MAX_BUILDINGS reached, cannot place all fence segments.");
-            break;
-        }
-        buildings[currentBuildingIdx].model = LoadModel("buildings/Fence.glb");
-        // MODIFIED POSITIONING: Place center of fence half its length from the current corner
-        buildings[currentBuildingIdx].position = (Vector3){ currentFencePos.x, currentFencePos.y, currentFencePos.z - halfFenceLength };
-        buildings[currentBuildingIdx].scale = FENCE_MODEL_SCALE;
-        buildings[currentBuildingIdx].rotationAngle = currentFenceRot;
-        currentBuildingIdx++;
-        currentFencePos.z -= FENCE_MODEL_EFFECTIVE_LENGTH; // Advance corner to the end of this segment
-    }
-    // --- End Enclosure Initialization ---
-
-    if (totalCustomRoadsCount < MAX_CUSTOM_ROADS && Farm_Entrance_numPoints > 1) {
-        CustomRoad* newRoad = &allCustomRoads[totalCustomRoadsCount];
-        snprintf(newRoad->name, sizeof(newRoad->name), "%s", Farm_Entrance_name);
-        newRoad->numPoints = Farm_Entrance_numPoints;
-        // Use memcpy to copy the points array
-        memcpy(newRoad->points, Farm_Entrance_points, sizeof(Vector3) * newRoad->numPoints);
-        // Use individual segments to create the road path
-        GenerateRoadSegments(newRoad, roadWidth, roadTexture);
-        totalCustomRoadsCount++; // Increment the count of active roads
-        TraceLog(LOG_INFO, "Created road '%s' with %d points", newRoad->name, newRoad->numPoints);
-    }
-    
 
     // Initialize the cloud system
     InitClouds(FIXED_TERRAIN_SIZE);
