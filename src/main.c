@@ -1481,14 +1481,24 @@ int main(void)
 
     // Load building models
     buildings[0].model = LoadModel("buildings/barn.glb");
+    if (buildings[0].model.meshCount == 0) TraceLog(LOG_ERROR, "Failed to load buildings/barn.glb");
     buildings[0].position = (Vector3){ -10.0f, 0.0f, -10.0f };
     buildings[0].scale = 0.05f;
     buildings[0].rotationAngle = 45.0f;
 
     buildings[1].model = LoadModel("buildings/horse_barn.glb");
+    if (buildings[1].model.meshCount == 0) TraceLog(LOG_ERROR, "Failed to load buildings/horse_barn.glb");
     buildings[1].position = (Vector3){ 10.0f, 0.0f, 10.0f };
     buildings[1].scale = 0.5f;
     buildings[1].rotationAngle = 135.0f;
+
+    // Load Bank model
+    buildings[2].model = LoadModel("buildings/Bank.glb");
+    if (buildings[2].model.meshCount == 0) TraceLog(LOG_ERROR, "Failed to load buildings/Bank.glb");
+    buildings[2].position = (Vector3){ 20.0f, 0.0f, -46.0f };
+    buildings[2].scale = 0.0002f; // Drastically reduced scale for testing
+    buildings[2].rotationAngle = 250.0f;
+
 
     // Load nature scene model
     // Model natureSceneModel = LoadModel("scenes/nature&mountains.glb");
@@ -1508,6 +1518,8 @@ int main(void)
         float rotation = GetRandomValue(0, 360);
         SpawnPlant(PLANT_TREE, pos, scale, rotation);
     }
+
+   
 
     int numberOfGrassPatches = NUMBER_OF_GRASS; // Increased from 100
     for (int i = 0; i < numberOfGrassPatches; i++) {
@@ -1592,7 +1604,7 @@ int main(void)
     // NEW: Calculate half length for positioning, assuming model pivot is at its center
     const float halfFenceLength = FENCE_MODEL_EFFECTIVE_LENGTH / 2.0f;
 
-    int currentBuildingIdx = 2; // Start after barn (index 0) and horse_barn (index 1)
+    int currentBuildingIdx = 3; // Start after barn (index 0), horse_barn (index 1), and bank (index 2)
     Vector3 currentFencePos = enclosureOrigin; // This tracks the current CORNER
     float currentFenceRot = 0.0f;
 
@@ -1733,7 +1745,9 @@ int main(void)
         // Draw buildings
         for (int i = 0; i < MAX_BUILDINGS; i++)
         {
-            DrawModelEx(buildings[i].model, buildings[i].position, (Vector3){0.0f, 1.0f, 0.0f}, buildings[i].rotationAngle, (Vector3){buildings[i].scale, buildings[i].scale, buildings[i].scale}, WHITE);
+            if (buildings[i].model.meshCount > 0) { // Check if model is loaded
+                DrawModelEx(buildings[i].model, buildings[i].position, (Vector3){0.0f, 1.0f, 0.0f}, buildings[i].rotationAngle, (Vector3){buildings[i].scale, buildings[i].scale, buildings[i].scale}, WHITE);
+            }
         }
 
         // Draw the nature scene model
