@@ -403,6 +403,53 @@ Vector3 Farm_Entrance_points[] = {
 int Farm_Entrance_numPoints = 30;
 char Farm_Entrance_name[] = "Farm Entrance";
 
+// Define points for the new road
+Vector3 secondRoadPoints[] = {
+    { -14.96f, 1.75f, 13.54f },
+    { -13.42f, 1.75f, 12.26f },
+    { -11.88f, 1.75f, 10.99f },
+    { -10.34f, 1.75f, 9.71f },
+    { -8.80f, 1.75f, 8.43f },
+    { -7.26f, 1.75f, 7.16f },
+    { -5.66f, 1.75f, 5.83f },
+    { -3.72f, 1.75f, 5.12f },
+    { -2.11f, 1.75f, 3.79f },
+    { -0.51f, 1.75f, 2.46f },
+    { 1.09f, 1.75f, 1.14f },
+    { 2.68f, 1.75f, -0.20f },
+    { 4.21f, 1.75f, -1.60f },
+    { 5.62f, 1.75f, -3.14f },
+    { 6.86f, 1.75f, -4.81f },
+    { 7.90f, 1.75f, -6.60f },
+    { 8.84f, 1.75f, -8.46f },
+    { 9.73f, 1.75f, -10.34f },
+    { 10.58f, 1.75f, -12.24f },
+    { 11.42f, 1.75f, -14.14f },
+    { 12.24f, 1.75f, -16.06f },
+    { 13.05f, 1.75f, -17.97f },
+    { 13.87f, 1.75f, -19.88f },
+    { 14.69f, 1.75f, -21.79f },
+    { 15.51f, 1.75f, -23.71f },
+    { 16.32f, 1.75f, -25.62f },
+    { 17.14f, 1.75f, -27.53f },
+    { 17.96f, 1.75f, -29.44f },
+    { 18.78f, 1.75f, -31.36f },
+    { 19.56f, 1.75f, -33.20f },
+    { 20.35f, 1.75f, -35.04f },
+    { 21.14f, 1.75f, -36.87f },
+    { 21.92f, 1.75f, -38.71f },
+    { 22.71f, 1.75f, -40.55f },
+    { 23.49f, 1.75f, -42.39f },
+    { 24.28f, 1.75f, -44.23f },
+    { 25.07f, 1.75f, -46.07f },
+    { 25.85f, 1.75f, -47.91f },
+    { 26.64f, 1.75f, -49.75f },
+    { 27.42f, 1.75f, -51.59f },
+    { 28.21f, 1.75f, -53.43f }
+};
+int secondRoadNumPoints = 41;
+char secondRoadName[] = "Second Road";
+
 // Function to generate road segment models for a specific CustomRoad
 void GenerateRoadSegments(CustomRoad* road, float rWidth, Texture2D rTexture) {
     if (!road || road->numPoints < 2) {
@@ -1431,7 +1478,7 @@ void DrawClouds(Camera camera) {
                     
                     // Draw additional cloud blocks at fixed positions
                     Vector3 blockPos = clouds[i].position;
-                    blockPos.x += bx * clouds[i].scale * 0.9f;
+                                       blockPos.x += bx * clouds[i].scale * 0.9f;
                     blockPos.z += bz * clouds[i].scale * 0.9f;
                     blockPos.y += (i % 3 - 1) * 0.1f * clouds[i].scale; // Small fixed height variation
                     
@@ -1584,6 +1631,19 @@ int main(void)
         totalCustomRoadsCount++; // Increment the count of active roads
         TraceLog(LOG_INFO, "Created road '%s' with %d points", newRoad->name, newRoad->numPoints);
     }
+
+    // Add the second road
+    if (totalCustomRoadsCount < MAX_CUSTOM_ROADS && secondRoadNumPoints > 1) {
+        CustomRoad* newRoad = &allCustomRoads[totalCustomRoadsCount];
+        snprintf(newRoad->name, sizeof(newRoad->name), "%s", secondRoadName);
+        newRoad->numPoints = secondRoadNumPoints;
+        // Use memcpy to copy the points array
+        memcpy(newRoad->points, secondRoadPoints, sizeof(Vector3) * newRoad->numPoints);
+        // Use individual segments to create the road path
+        GenerateRoadSegments(newRoad, roadWidth, roadTexture);
+        totalCustomRoadsCount++; // Increment the count of active roads
+        TraceLog(LOG_INFO, "Created road '%s' with %d points", newRoad->name, newRoad->numPoints);
+    }
     
     // Spawn plants (numbers increased)
     int numberOfTrees = NUMBER_OF_TREES; // Increased from 50
@@ -1646,26 +1706,58 @@ int main(void)
 
     while (!WindowShouldClose())
     {
-               // Update camera mode
-        if (IsKeyPressed(KEY_ONE))
-            cameraMode = CAMERA_FREE;
-        if (IsKeyPressed(KEY_TWO))
-            cameraMode = CAMERA_FIRST_PERSON;
-        if (IsKeyPressed(KEY_THREE))
-            cameraMode = CAMERA_THIRD_PERSON;
-        if (IsKeyPressed(KEY_FOUR))
-            cameraMode = CAMERA_ORBITAL;      
-
+        // Update camera
         UpdateCameraCustom(&camera, cameraMode);
 
-        // Update animal positions and states
-        for (int i = 0; i < animalCount; i++) {
-            if (animals[i].active) {
-                UpdateAnimal(&animals[i], FIXED_TERRAIN_SIZE);
+        // --- Path Recording Logic ---
+        if (IsKeyPressed(KEY_R)) {
+            isRecordingPath = !isRecordingPath;
+            if (isRecordingPath) {
+                currentRecordingPointCount = 0;
+                TraceLog(LOG_INFO, "Path recording started.");
+            } else {
+                TraceLog(LOG_INFO, "Path recording stopped. %d points recorded.", currentRecordingPointCount);
             }
         }
-        
-        // Update terrain chunks based on player position
+
+        if (isRecordingPath && currentRecordingPointCount < MAX_PATH_POINTS) {
+            if (currentRecordingPointCount == 0) {
+                // Always record the first point
+                currentRecordingBuffer[currentRecordingPointCount++] = camera.position;
+                TraceLog(LOG_INFO, "Recorded point %d: (%.2f, %.2f, %.2f)", currentRecordingPointCount, camera.position.x, camera.position.y, camera.position.z);
+            } else {
+                // Record subsequent points if moved far enough
+                float distSq = Vector3DistanceSqr(camera.position, currentRecordingBuffer[currentRecordingPointCount - 1]);
+                if (distSq > minRecordDistanceSq) {
+                    currentRecordingBuffer[currentRecordingPointCount++] = camera.position;
+                    TraceLog(LOG_INFO, "Recorded point %d: (%.2f, %.2f, %.2f)", currentRecordingPointCount, camera.position.x, camera.position.y, camera.position.z);
+                }
+            }
+        }
+
+        if (IsKeyPressed(KEY_E)) {
+            if (currentRecordingPointCount > 0) {
+                printf("Recorded Path Coordinates (%d points):\\n", currentRecordingPointCount);
+                printf("Vector3 recordedPathPoints[] = {\\n");
+                for (int i = 0; i < currentRecordingPointCount; i++) {
+                    printf("    { %.2ff, %.2ff, %.2ff }%s\\n", 
+                           currentRecordingBuffer[i].x, 
+                           currentRecordingBuffer[i].y, 
+                           currentRecordingBuffer[i].z, 
+                           (i == currentRecordingPointCount - 1) ? "" : ",");
+                }
+                printf("};\\n");
+                printf("int recordedPathNumPoints = %d;\\n", currentRecordingPointCount);
+                // Optionally, clear the buffer after exporting if desired
+                // currentRecordingPointCount = 0; 
+                // isRecordingPath = false; // Or allow further recording/appending
+            } else {
+                TraceLog(LOG_INFO, "No path points recorded to export.");
+            }
+        }
+        // --- End Path Recording Logic ---
+
+        // Update terrain based on player position
         UpdateTerrainChunks(camera.position, terrainTexture);
 
         BeginDrawing();
