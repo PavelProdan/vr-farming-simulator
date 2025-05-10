@@ -12,7 +12,7 @@
 #define MAX_ANIMALS 100
 #define MAX_BUILDINGS 24  // For barn, horse barn, and 22 fence segments for the enclosure
 #define MAX_CLOUDS 5000   // Increased number of clouds
-#define MAX_PLANTS 1000 // Maximum number of plants (increased from 200)
+#define MAX_PLANTS 3000 // Maximum number of plants (increased from 1000 to 2000)
 #define MAX_CLOUD_TYPES 1 // Number of different cloud types/textures
 #define CLOUD_LAYER_HEIGHT 120.0f  // Height for all clouds
 #define CLOUD_COVERAGE_RADIUS 1500.0f // Expanded cloud coverage for more distant clouds
@@ -36,21 +36,19 @@
 
 //#define DEVMODE
 
-#ifdef DEVMODE
-    #define NUMBER_OF_TREES 1
-    #define NUMBER_OF_GRASS 1
-    #define NUMBER_OF_FLOWERS 1
-#else
-    #define NUMBER_OF_TREES 160
-    #define NUMBER_OF_GRASS 700
-    #define NUMBER_OF_FLOWERS 300
-#endif
+#define NUMBER_OF_TREES 160
+#define NUMBER_OF_GRASS 700
+#define NUMBER_OF_FLOWERS 300
+#define NUMBER_OF_FLOWER_TYPE2 900
+#define NUMBER_OF_BUSH_WITH_FLOWERS 400
 
 // Plant types enum
 typedef enum {
     PLANT_TREE,
     PLANT_GRASS,
     PLANT_FLOWER,
+    PLANT_FLOWER_TYPE2,
+    PLANT_BUSH_WITH_FLOWERS, // Added new bush with flowers type
     PLANT_TYPE_COUNT
 } PlantType;
 
@@ -70,13 +68,15 @@ bool IsCollisionWithAnimal(Vector3 position, float radius, int* animalIndex);
 void InitPlant(Plant* plant, PlantType type, Vector3 position, float scale, float rotation);
 void SpawnPlant(PlantType type, Vector3 position, float scale, float rotation);
 Vector3 GetRandomPlantPosition(float terrainSize);
-void DrawPlants(void);
+void DrawPlants(Camera camera); // Modified to accept Camera
 void UnloadPlantResources(void);
 
 // --- Global Models for Plants ---
 Model globalTreeModel;
 Model globalGrassModel;
 Model globalFlowerModel;
+Model globalFlowerModel_type2;
+Model globalBushWithFlowersModel; // Added for the new bush with flowers type
 // --- End Global Models for Plants ---
 
 // Building structure
@@ -161,6 +161,12 @@ void InitPlant(Plant* plant, PlantType type, Vector3 position, float scale, floa
         case PLANT_FLOWER:
             plant->model = globalFlowerModel;
             break;
+        case PLANT_FLOWER_TYPE2:
+            plant->model = globalFlowerModel_type2;
+            break;
+        case PLANT_BUSH_WITH_FLOWERS: // Added case for new bush with flowers type
+            plant->model = globalBushWithFlowersModel;
+            break;
         default:
             plant->active = false; // Invalid type
             TraceLog(LOG_WARNING, "Attempted to initialize invalid plant type.");
@@ -224,10 +230,23 @@ Vector3 GetRandomPlantPosition(float terrainSize) { // terrainSize argument is k
 }
 
 // Draw all active plants
-void DrawPlants(void) {
+void DrawPlants(Camera camera) { // Modified to accept Camera
+    float maxDrawDistanceFlowerType2 = 40.0f; // Max distance to draw flower type 2
+    float maxDrawDistanceBushWithFlowers = 50.0f; // Max distance to draw bush with flowers
+
     for (int i = 0; i < plantCount; i++) {
         if (plants[i].active) {
-            DrawModelEx(plants[i].model, plants[i].position, (Vector3){0.0f, 1.0f, 0.0f}, plants[i].rotationAngle, (Vector3){plants[i].scale, plants[i].scale, plants[i].scale}, WHITE);
+            if (plants[i].type == PLANT_FLOWER_TYPE2) {
+                if (Vector3DistanceSqr(camera.position, plants[i].position) < maxDrawDistanceFlowerType2 * maxDrawDistanceFlowerType2) {
+                    DrawModelEx(plants[i].model, plants[i].position, (Vector3){0.0f, 1.0f, 0.0f}, plants[i].rotationAngle, (Vector3){plants[i].scale, plants[i].scale, plants[i].scale}, WHITE);
+                }
+            } else if (plants[i].type == PLANT_BUSH_WITH_FLOWERS) {
+                 if (Vector3DistanceSqr(camera.position, plants[i].position) < maxDrawDistanceBushWithFlowers * maxDrawDistanceBushWithFlowers) {
+                    DrawModelEx(plants[i].model, plants[i].position, (Vector3){0.0f, 1.0f, 0.0f}, plants[i].rotationAngle, (Vector3){plants[i].scale, plants[i].scale, plants[i].scale}, WHITE);
+                }
+            }else {
+                DrawModelEx(plants[i].model, plants[i].position, (Vector3){0.0f, 1.0f, 0.0f}, plants[i].rotationAngle, (Vector3){plants[i].scale, plants[i].scale, plants[i].scale}, WHITE);
+            }
         }
     }
 }
@@ -238,6 +257,8 @@ void UnloadPlantResources(void) {
     if (globalTreeModel.meshCount > 0) UnloadModel(globalTreeModel);
     if (globalGrassModel.meshCount > 0) UnloadModel(globalGrassModel);
     if (globalFlowerModel.meshCount > 0) UnloadModel(globalFlowerModel);
+    if (globalFlowerModel_type2.meshCount > 0) UnloadModel(globalFlowerModel_type2);
+    if (globalBushWithFlowersModel.meshCount > 0) UnloadModel(globalBushWithFlowersModel); // Added unloading for new bush model
 
     // Clear the plant array itself if needed, but models are now global
     plantCount = 0;
@@ -1427,6 +1448,12 @@ int main(void)
 
     globalFlowerModel = LoadModel("plants/flower.glb");
     if (globalFlowerModel.meshCount == 0) TraceLog(LOG_ERROR, "Failed to load flower.glb");
+
+    globalFlowerModel_type2 = LoadModel("plants/flower2.glb");
+    if (globalFlowerModel_type2.meshCount == 0) TraceLog(LOG_ERROR, "Failed to load flower2.glb");
+
+    globalBushWithFlowersModel = LoadModel("plants/bushWithFlowers.glb"); // Load new bush model
+    if (globalBushWithFlowersModel.meshCount == 0) TraceLog(LOG_ERROR, "Failed to load bushWithFlowers.glb");
     // --- End Load Global Plant Models ---
 
     // Set up basic fog effect for distance
@@ -1487,6 +1514,8 @@ int main(void)
         Vector3 pos = GetRandomPlantPosition(FIXED_TERRAIN_SIZE);
         // Ensure grass is slightly above ground to avoid z-fighting, if necessary
         // pos.y = 0.05f; 
+        
+               
         float scale = GetRandomValue(50, 120) / 100.0f; // Random scale
         float rotation = GetRandomValue(0, 360);
         SpawnPlant(PLANT_GRASS, pos, scale, rotation);
@@ -1499,6 +1528,22 @@ int main(void)
         float scale = GetRandomValue(70, 130) / 100.0f; // Random scale
         float rotation = GetRandomValue(0, 360);
         SpawnPlant(PLANT_FLOWER, pos, scale, rotation);
+    }
+
+    int numberOfFlowerType2 = NUMBER_OF_FLOWER_TYPE2; // Added for new flower type
+    for (int i = 0; i < numberOfFlowerType2; i++) {
+        Vector3 pos = GetRandomPlantPosition(FIXED_TERRAIN_SIZE);
+        float scale = 0.003f; // Set fixed scale to 0.005f
+        float rotation = GetRandomValue(0, 360);
+        SpawnPlant(PLANT_FLOWER_TYPE2, pos, scale, rotation);
+    }
+
+    int numberOfBushWithFlowers = NUMBER_OF_BUSH_WITH_FLOWERS;
+    for (int i = 0; i < numberOfBushWithFlowers; i++) {
+        Vector3 pos = GetRandomPlantPosition(FIXED_TERRAIN_SIZE);
+        float scale = GetRandomValue(80, 120) / 100.0f; // Random scale 0.8 to 1.2
+        float rotation = GetRandomValue(0, 360);
+        SpawnPlant(PLANT_BUSH_WITH_FLOWERS, pos, scale, rotation);
     }
 
     // --- Road Initialization ---
@@ -1697,7 +1742,7 @@ int main(void)
         // DrawModel(natureSceneModel2, natureScenePosition2, natureSceneScale2, WHITE);
 
         // Draw plants
-        DrawPlants();
+        DrawPlants(camera); // Pass camera object
 
         // Draw animals
         DrawAnimals();
