@@ -1405,6 +1405,7 @@ int main(void)
     const int screenHeight = GetMonitorHeight(currentMonitor);
 
     InitWindow(screenWidth, screenHeight, "VR Farming Simulator");
+    rlSetClipPlanes(1.0, 1500.0); // Adjust near/far clip planes for better depth precision
 
     // Define the camera
     Camera camera = {0};
@@ -1510,7 +1511,7 @@ int main(void)
     // Vector3 natureScenePosition2 = { -25.0f, 0.0f, -50.0f }; // Near the first nature scene
     // float natureSceneScale2 = 1.0f;
 
-    // Spawn plants (numbers increased)
+       // Spawn plants (numbers increased)
     int numberOfTrees = NUMBER_OF_TREES; // Increased from 50
     for (int i = 0; i < numberOfTrees; i++) {
         Vector3 pos = GetRandomPlantPosition(FIXED_TERRAIN_SIZE);
