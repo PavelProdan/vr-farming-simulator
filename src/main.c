@@ -245,7 +245,9 @@ Vector3 GetRandomPlantPosition(float terrainSize) { // terrainSize argument is k
                 exclusionRadiusForPlant = 7.0f; // Increased from 4.5f
             } else if (i == 2) { // Bank.glb (index 2, scale 0.0002f)
                 exclusionRadiusForPlant = 12.0f; // Increased from 8.0f
-            } else if (i >= 3 && buildings[i].scale == FENCE_MODEL_SCALE_CONST) { // Likely a fence segment
+            } else if (i == 3) { // constructionHouse.glb (index 3, scale 0.1f)
+                exclusionRadiusForPlant = 9.0f;  // Exclusion radius for Construction House
+            } else if (i >= 4 && buildings[i].scale == FENCE_MODEL_SCALE_CONST) { // Likely a fence segment
                 exclusionRadiusForPlant = 1.5f; // Half-length (1.0f) + 0.5f buffer
             } else { 
                 // Generic fallback for other unknown buildings
@@ -1273,15 +1275,33 @@ void UpdateCameraCustom(Camera *camera, int mode)
 // Function to check if an animal is colliding with a building
 bool IsCollisionWithBuilding(Vector3 animalPosition, float animalRadius, int* buildingIndex) {
     for (int i = 0; i < MAX_BUILDINGS; i++) {
+        if (buildings[i].model.meshCount == 0) continue; // Skip uninitialized or unloaded buildings
+
         // Calculate distance between animal and building center
         float distance = Vector3Distance(animalPosition, buildings[i].position);
         
-        // Use a collision radius based on the building type
+        // Use a collision radius based on the building type/index
         float buildingRadius;
-        if (i == 0) { // barn.glb - needs a larger radius relative to its small scale
-            buildingRadius = 6.0f; // Fixed size regardless of scale since the scale is very small (0.05)
-        } else { // horse_barn.glb
-            buildingRadius = 6.0f * buildings[i].scale;
+        if (i == 0) { // barn.glb (index 0)
+            buildingRadius = 6.0f; 
+        } else if (i == 1) { // horse_barn.glb (index 1)
+            buildingRadius = 5.0f; // Adjusted fixed radius
+        } else if (i == 2) { // Bank.glb (index 2)
+            buildingRadius = 10.0f; // Specific radius for Bank due to its small model scale
+        } else if (i == 3) { // constructionHouse.glb (index 3)
+            buildingRadius = 3.0f;  // Reduced specific radius for Construction House
+        } else { 
+            // For fences or other unlisted buildings
+            // Assuming FENCE_MODEL_SCALE_CONST is 0.2f for fences
+            const float FENCE_MODEL_SCALE_CONST = 0.2f; 
+            if (buildings[i].scale == FENCE_MODEL_SCALE_CONST) { // Likely a fence
+                buildingRadius = 1.0f; // Small radius for fence segments
+            } else {
+                // Generic scaling for other unknown buildings, using a base factor.
+                // Adjust this factor as needed if other buildings are added with varying scales.
+                buildingRadius = buildings[i].scale * 20.0f; 
+                if (buildingRadius < 1.5f) buildingRadius = 1.5f; // Minimum generic radius
+            }
         }
         
         // Check for collision
@@ -1450,7 +1470,7 @@ void InitClouds(float terrainSize) {
             
             cloudIndex++;
         }
-    }
+ }
 }
 
 // Draw all clouds in the sky - Static Minecraft style
@@ -1478,7 +1498,7 @@ void DrawClouds(Camera camera) {
                     
                     // Draw additional cloud blocks at fixed positions
                     Vector3 blockPos = clouds[i].position;
-                                       blockPos.x += bx * clouds[i].scale * 0.9f;
+                                                                             blockPos.x += bx * clouds[i].scale * 0.9f;
                     blockPos.z += bz * clouds[i].scale * 0.9f;
                     blockPos.y += (i % 3 - 1) * 0.1f * clouds[i].scale; // Small fixed height variation
                     
@@ -1606,6 +1626,13 @@ int main(void)
     buildings[2].position = (Vector3){ 20.0f, 0.0f, -46.0f };
     buildings[2].scale = 0.0002f; // Drastically reduced scale for testing
     buildings[2].rotationAngle = 250.0f;
+
+    // Load Construction House model
+    buildings[3].model = LoadModel("buildings/constructionHouse.glb");
+    if (buildings[3].model.meshCount == 0) TraceLog(LOG_ERROR, "Failed to load buildings/constructionHouse.glb");
+    buildings[3].position = (Vector3){ -40.0f, 0.1f, 26.0f }; // Opposite direction of Bank from Barn
+    buildings[3].scale = 3.8f; // Adjust scale as needed
+    buildings[3].rotationAngle = 0.0f; // Adjust rotation as needed
 
 
     // Load nature scene model
@@ -1759,6 +1786,13 @@ int main(void)
 
         // Update terrain based on player position
         UpdateTerrainChunks(camera.position, terrainTexture);
+
+        // Update animals
+        for (int i = 0; i < animalCount; i++) {
+            if (animals[i].active) {
+                UpdateAnimal(&animals[i], FIXED_TERRAIN_SIZE);
+            }
+        }
 
         BeginDrawing();
         ClearBackground(SKY_COLOR); // Use sky color as background
