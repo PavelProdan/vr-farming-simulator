@@ -10,7 +10,7 @@
 #include <string.h>  // For bool type
 #define MAX_COLUMNS 20
 #define MAX_ANIMALS 100
-#define MAX_BUILDINGS 64  // Increased for more fence segments and future expansion
+#define MAX_BUILDINGS 120  // Increased for more fence segments and future expansion
 #define MAX_CLOUDS 5000   // Increased number of clouds
 #define MAX_PLANTS 3000 // Maximum number of plants (increased from 1000 to 2000)
 #define MAX_CLOUD_TYPES 1 // Number of different cloud types/textures
@@ -476,6 +476,39 @@ Vector3 thirdRoadPoints[] = {
 };
 int thirdRoadNumPoints = 14;
 char thirdRoadName[] = "Third Road";
+
+// Define points for the fourth road
+Vector3 fourthRoadPoints[] = {
+    { 17.01f, 1.75f, 15.76f },
+    { 14.94f, 1.75f, 15.81f },
+    { 12.90f, 1.75f, 16.19f },
+    { 11.05f, 1.75f, 17.12f },
+    { 9.71f, 1.75f, 18.70f },
+    { 8.69f, 1.75f, 20.51f },
+    { 7.76f, 1.75f, 22.37f },
+    { 6.79f, 1.75f, 24.21f },
+    { 5.08f, 1.75f, 25.38f },
+    { 3.05f, 1.75f, 25.04f },
+    { 1.37f, 1.75f, 23.82f },
+    { -0.15f, 1.75f, 22.41f }
+};
+int fourthRoadNumPoints = 12;
+char fourthRoadName[] = "Fourth Road";
+
+// Define points for the fifth road
+Vector3 fifthRoadPoints[] = {
+    { -21.78f, 1.75f, 2.28f },
+    { -23.83f, 1.75f, 1.92f },
+    { -25.88f, 1.75f, 1.55f },
+    { -27.92f, 1.75f, 1.17f },
+    { -29.98f, 1.75f, 0.83f },
+    { -32.05f, 1.75f, 0.68f },
+    { -34.13f, 1.75f, 0.65f },
+    { -36.21f, 1.75f, 0.71f },
+    { -38.20f, 1.75f, 0.82f }
+};
+int fifthRoadNumPoints = 9;
+char fifthRoadName[] = "Fifth Road";
 
 // Function to generate road segment models for a specific CustomRoad
 void GenerateRoadSegments(CustomRoad* road, float rWidth, Texture2D rTexture) {
@@ -1303,6 +1336,11 @@ bool IsCollisionWithBuilding(Vector3 position, float radius, int* buildingIndex)
     for (int i = 0; i < MAX_BUILDINGS; i++) {
         if (buildings[i].model.meshCount == 0) continue; // Skip uninitialized buildings
 
+        // Skip collision check for the chicken coop by checking its scale
+        if (buildings[i].scale == 1.0f) {
+            continue; // Skip the chicken coop
+        }
+
         // Calculate distance between position and building center
         float distance = Vector3Distance(position, buildings[i].position);
         
@@ -1801,7 +1839,7 @@ int main(void)
     const float ENCLOSURE_WIDTH = 5.0f;  // 5 units wide
     const float ENCLOSURE_LENGTH = 6.0f; // 6 units long
     const float FENCE_SPACING = 1.0f;    // Space between fence segments
-    const Vector3 ENCLOSURE_CENTER = (Vector3){ 15.0f, 0.0f, 15.0f }; // Center position of enclosure
+    const Vector3 ENCLOSURE_CENTER = (Vector3){ 20.0f, 0.0f, 15.0f }; // Center position of enclosure
 
     // Calculate starting position (top-left corner)
     Vector3 startPos = {
@@ -1871,6 +1909,83 @@ int main(void)
         fenceIndex++;
     }
 
+    // --- Second Animal Enclosure ---
+    const float ENCLOSURE_WIDTH_2 = 9.0f;   // Bigger width
+    const float ENCLOSURE_LENGTH_2 = 10.0f; // Bigger length
+    const Vector3 ENCLOSURE_CENTER_2 = (Vector3){ -45.0f, 0.0f, -3.0f }; // Center position of second enclosure
+    Vector3 startPos2 = {
+        ENCLOSURE_CENTER_2.x - (ENCLOSURE_WIDTH_2 / 2.0f),
+        0.0f,
+        ENCLOSURE_CENTER_2.z - (ENCLOSURE_LENGTH_2 / 2.0f)
+    };
+    int fenceIndex2 = fenceIndex; // Continue after the first enclosure
+
+    // Top side (left to right, moved even more to the right)
+    for (int i = 0; i <= (int)ENCLOSURE_WIDTH_2 + 1; i++) {
+        if (fenceIndex2 >= MAX_BUILDINGS) break;
+        buildings[fenceIndex2].model = fenceModel;
+        buildings[fenceIndex2].position = (Vector3){
+            startPos2.x - (2 * FENCE_SPACING) + (i * FENCE_SPACING) + (2 * FENCE_SPACING),
+            startPos2.y,
+            startPos2.z - FENCE_SPACING
+        };
+        buildings[fenceIndex2].scale = FENCE_MODEL_SCALE_CONST;
+        buildings[fenceIndex2].rotationAngle = 0.0f;
+        fenceIndex2++;
+    }
+    // Right side (top to bottom, moved further to the exterior)
+    for (int i = 0; i <= (int)ENCLOSURE_LENGTH_2; i++) {
+        if (fenceIndex2 >= MAX_BUILDINGS) break;
+        buildings[fenceIndex2].model = fenceModel;
+        buildings[fenceIndex2].position = (Vector3){
+            startPos2.x + ((ENCLOSURE_WIDTH_2 + 1) * FENCE_SPACING) + FENCE_SPACING,
+            startPos2.y,
+            startPos2.z + (i * FENCE_SPACING)
+        };
+        buildings[fenceIndex2].scale = FENCE_MODEL_SCALE_CONST;
+        buildings[fenceIndex2].rotationAngle = 90.0f;
+        fenceIndex2++;
+    }
+    // Bottom side (right to left, move lower, inwards, and further to the left)
+    for (int i = 0; i <= (int)ENCLOSURE_WIDTH_2 + 1; i++) {
+        if (fenceIndex2 >= MAX_BUILDINGS) break;
+        buildings[fenceIndex2].model = fenceModel;
+        buildings[fenceIndex2].position = (Vector3){
+            startPos2.x + FENCE_SPACING + ((ENCLOSURE_WIDTH_2 + 1) * FENCE_SPACING) - (i * FENCE_SPACING) - FENCE_SPACING,
+            startPos2.y,
+            startPos2.z + ((ENCLOSURE_LENGTH_2) * FENCE_SPACING) + FENCE_SPACING
+        };
+        buildings[fenceIndex2].scale = FENCE_MODEL_SCALE_CONST;
+        buildings[fenceIndex2].rotationAngle = 180.0f;
+        fenceIndex2++;
+    }
+    // Left side (top to bottom, move one position to the inside)
+    for (int i = 0; i <= (int)ENCLOSURE_LENGTH_2; i++) {
+        if (fenceIndex2 >= MAX_BUILDINGS) break;
+        buildings[fenceIndex2].model = fenceModel;
+        buildings[fenceIndex2].position = (Vector3){
+            startPos2.x - FENCE_SPACING,
+            startPos2.y,
+            startPos2.z + (i * FENCE_SPACING)
+        };
+        buildings[fenceIndex2].scale = FENCE_MODEL_SCALE_CONST;
+        buildings[fenceIndex2].rotationAngle = 270.0f;
+        fenceIndex2++;
+    }
+    fenceIndex = fenceIndex2; // Update main fenceIndex for any further buildings
+
+    // Load and place ChickenCoop in the second enclosure
+    buildings[fenceIndex].model = LoadModel("buildings/ChickenCoop.glb");
+    if (buildings[fenceIndex].model.meshCount == 0) TraceLog(LOG_ERROR, "Failed to load buildings/ChickenCoop.glb");
+    buildings[fenceIndex].position = (Vector3){
+        ENCLOSURE_CENTER_2.x,  // Center of the enclosure
+        0.0f,
+        ENCLOSURE_CENTER_2.z   // Center of the enclosure
+    };
+    buildings[fenceIndex].scale = 1.0f;  // Increased scale to 1.0f
+    buildings[fenceIndex].rotationAngle = 45.0f;  // Rotate 45 degrees for better placement
+    fenceIndex++;  // Increment for any future buildings
+
     // Load nature scene model
     // Model natureSceneModel = LoadModel("scenes/nature&mountains.glb");
     // Vector3 natureScenePosition = { -25.0f, 0.0f, -25.0f }; // Further from the barn
@@ -1914,6 +2029,32 @@ int main(void)
         newRoad->numPoints = thirdRoadNumPoints;
         // Use memcpy to copy the points array
         memcpy(newRoad->points, thirdRoadPoints, sizeof(Vector3) * newRoad->numPoints);
+        // Use individual segments to create the road path
+        GenerateRoadSegments(newRoad, roadWidth, roadTexture);
+        totalCustomRoadsCount++; // Increment the count of active roads
+        TraceLog(LOG_INFO, "Created road '%s' with %d points", newRoad->name, newRoad->numPoints);
+    }
+
+    // Add the fourth road
+    if (totalCustomRoadsCount < MAX_CUSTOM_ROADS && fourthRoadNumPoints > 1) {
+        CustomRoad* newRoad = &allCustomRoads[totalCustomRoadsCount];
+        snprintf(newRoad->name, sizeof(newRoad->name), "%s", fourthRoadName);
+        newRoad->numPoints = fourthRoadNumPoints;
+        // Use memcpy to copy the points array
+        memcpy(newRoad->points, fourthRoadPoints, sizeof(Vector3) * newRoad->numPoints);
+        // Use individual segments to create the road path
+        GenerateRoadSegments(newRoad, roadWidth, roadTexture);
+        totalCustomRoadsCount++; // Increment the count of active roads
+        TraceLog(LOG_INFO, "Created road '%s' with %d points", newRoad->name, newRoad->numPoints);
+    }
+
+    // Add the fifth road
+    if (totalCustomRoadsCount < MAX_CUSTOM_ROADS && fifthRoadNumPoints > 1) {
+        CustomRoad* newRoad = &allCustomRoads[totalCustomRoadsCount];
+        snprintf(newRoad->name, sizeof(newRoad->name), "%s", fifthRoadName);
+        newRoad->numPoints = fifthRoadNumPoints;
+        // Use memcpy to copy the points array
+        memcpy(newRoad->points, fifthRoadPoints, sizeof(Vector3) * newRoad->numPoints);
         // Use individual segments to create the road path
         GenerateRoadSegments(newRoad, roadWidth, roadTexture);
         totalCustomRoadsCount++; // Increment the count of active roads
