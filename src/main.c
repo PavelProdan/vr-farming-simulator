@@ -232,6 +232,11 @@ Vector3 GetRandomPlantPosition(float terrainSize) { // terrainSize argument is k
         position.z = GetRandomValue(minZ * 100, maxZ * 100) / 100.0f;
         position.y = 0.0f; // On the ground
 
+        // First check if position is on any road
+        if (IsPositionOnRoad(position, roadWidth)) {
+            continue; // Skip this position if it's on a road
+        }
+
         bool collisionWithBuilding = false;
         for (int i = 0; i < MAX_BUILDINGS; i++) {
             if (buildings[i].model.meshCount == 0) continue; // Skip uninitialized buildings
@@ -247,6 +252,8 @@ Vector3 GetRandomPlantPosition(float terrainSize) { // terrainSize argument is k
                 exclusionRadiusForPlant = 12.0f; // Increased from 8.0f
             } else if (i == 3) { // constructionHouse.glb (index 3, scale 0.1f)
                 exclusionRadiusForPlant = 9.0f;  // Exclusion radius for Construction House
+            } else if (i == 4) { // FarmHouse.glb (index 4)
+                exclusionRadiusForPlant = 10.0f;  // Reduced exclusion radius for FarmHouse
             } else if (i >= 4 && buildings[i].scale == FENCE_MODEL_SCALE_CONST) { // Likely a fence segment
                 exclusionRadiusForPlant = 1.5f; // Half-length (1.0f) + 0.5f buffer
             } else { 
@@ -261,9 +268,7 @@ Vector3 GetRandomPlantPosition(float terrainSize) { // terrainSize argument is k
             }
         }
 
-        bool onRoad = IsPositionOnRoad(position, roadWidth); // roadWidth is global
-
-        if (!collisionWithBuilding && !onRoad) {
+        if (!collisionWithBuilding) {
             return position; // Found a good spot
         }
     }
@@ -1309,6 +1314,8 @@ bool IsCollisionWithBuilding(Vector3 animalPosition, float animalRadius, int* bu
             buildingRadius = 10.0f; // Specific radius for Bank due to its small model scale
         } else if (i == 3) { // constructionHouse.glb (index 3)
             buildingRadius = 3.0f;  // Reduced specific radius for Construction House
+        } else if (i == 4) { // FarmHouse.glb (index 4)
+            buildingRadius = 2.0f;  // Reduced collision radius for FarmHouse
         } else { 
             // For fences or other unlisted buildings
             // Assuming FENCE_MODEL_SCALE_CONST is 0.2f for fences
@@ -1653,6 +1660,12 @@ int main(void)
     buildings[3].scale = 3.8f; // Adjust scale as needed
     buildings[3].rotationAngle = 0.0f; // Adjust rotation as needed
 
+    // Load FarmHouse model
+    buildings[4].model = LoadModel("buildings/FarmHouse.glb");
+    if (buildings[4].model.meshCount == 0) TraceLog(LOG_ERROR, "Failed to load buildings/FarmHouse.glb");
+    buildings[4].position = (Vector3){ -35.0f, 0.1f, 20.0f }; // Positioned near the constructionHouse
+    buildings[4].scale = 0.5f; // Adjust scale as needed
+    buildings[4].rotationAngle = 108.0f; // Adjust rotation as needed
 
     // Load nature scene model
     // Model natureSceneModel = LoadModel("scenes/nature&mountains.glb");
