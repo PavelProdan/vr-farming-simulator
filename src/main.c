@@ -29,6 +29,11 @@
 #define FOG_COLOR (Color){ 200, 225, 255, 255 }  // Light blue fog
 #define SKY_COLOR (Color){ 135, 206, 235, 255 }  // Light blue sky color
 
+// Chicken enclosure constants
+#define ENCLOSURE_CENTER_2 (Vector3){ -45.0f, 0.0f, -3.0f }
+#define ENCLOSURE_WIDTH_2 15.0f
+#define ENCLOSURE_LENGTH_2 12.0f
+
 // Define LIGHTGREEN color if it's not defined in raylib
 #ifndef LIGHTGREEN
     #define LIGHTGREEN (Color){ 200, 255, 200, 255 }
@@ -497,17 +502,15 @@ char fourthRoadName[] = "Fourth Road";
 
 // Define points for the fifth road
 Vector3 fifthRoadPoints[] = {
-    { -21.78f, 1.75f, 2.28f },
-    { -23.83f, 1.75f, 1.92f },
-    { -25.88f, 1.75f, 1.55f },
-    { -27.92f, 1.75f, 1.17f },
-    { -29.98f, 1.75f, 0.83f },
-    { -32.05f, 1.75f, 0.68f },
-    { -34.13f, 1.75f, 0.65f },
-    { -36.21f, 1.75f, 0.71f },
-    { -38.20f, 1.75f, 0.82f }
+    { -21.79f, 1.75f, 1.48f },
+    { -23.77f, 1.75f, 1.22f },
+    { -25.84f, 1.75f, 0.98f },
+    { -27.91f, 1.75f, 0.82f },
+    { -29.99f, 1.75f, 0.77f },
+    { -32.07f, 1.75f, 0.82f },
+    { -34.07f, 1.75f, 0.91f }
 };
-int fifthRoadNumPoints = 9;
+int fifthRoadNumPoints = 7;
 char fifthRoadName[] = "Fifth Road";
 
 // Function to generate road segment models for a specific CustomRoad
@@ -865,7 +868,7 @@ void InitAnimal(Animal* animal, AnimalType type, Vector3 position) {
             animal->idleModel = LoadModel("animals/idle_chicken.glb");
             animal->walkingAnim = LoadModelAnimations("animals/walking_chicken.glb", &animal->walkingAnimCount);
             animal->idleAnim = LoadModelAnimations("animals/idle_chicken.glb", &animal->idleAnimCount);
-            animal->scale = 1.0f;
+            animal->scale = 1.8f;  // Increased from 1.0f to make chickens bigger
             animal->speed = 0.006f; // Reduced speed
             break;
         case ANIMAL_PIG:
@@ -913,144 +916,182 @@ bool collisionDetectionEnabled = true; // Default is enabled
 void UpdateAnimal(Animal* animal, float terrainSize) {
     // Update timer for state changes
     animal->moveTimer += GetFrameTime();
-    
-    // Change direction or state after interval expires
-    if (animal->moveTimer >= animal->moveInterval) {
-        animal->moveTimer = 0.0f;
-        
-        // 70% chance to move, 30% chance to stay idle
-        if (GetRandomValue(0, 100) < 70) {
-            animal->isMoving = true;
+
+    if (animal->type == ANIMAL_CHICKEN) {
+        // Chicken-specific logic
+        float enclosurePadding = 0.1f; // Consistent padding
+
+        if (animal->moveTimer >= animal->moveInterval) {
+            animal->moveTimer = 0.0f; // Reset timer for next decision
+            animal->isMoving = true;  // Chickens tend to keep moving or turning
+
+            // New direction: Adjust current direction by a random angle (smoother turns)
+            float turnStrength = 45.0f; // Max turn in degrees for wandering
+            float turnAngle = GetRandomValue(-turnStrength, turnStrength) * DEG2RAD;
+            float currentAngleRad = atan2f(animal->direction.x, animal->direction.z);
+            // Ensure there's a default direction if x and z are zero (e.g. at start)
+            if (animal->direction.x == 0.0f && animal->direction.z == 0.0f) {
+                currentAngleRad = GetRandomValue(0,360) * DEG2RAD;
+            }
+            float newAngleRad = currentAngleRad + turnAngle;
+
+            animal->direction.x = sinf(newAngleRad);
+            animal->direction.z = cosf(newAngleRad);
+            animal->direction = Vector3Normalize(animal->direction);
             
-            // Calculate distance from spawn point
-            float distanceFromSpawn = Vector3Distance(animal->position, animal->spawnPosition);
-            
-            // 80% chance to move forward in current direction or toward spawn if too far away
-            if (GetRandomValue(0, 100) < 80 || distanceFromSpawn > animal->maxWanderDistance) {
-                if (distanceFromSpawn > animal->maxWanderDistance * 0.7f) {
-                    // If animal is getting far from spawn, steer back toward spawn point
-                    Vector3 toSpawn = Vector3Subtract(animal->spawnPosition, animal->position);
-                    float len = sqrtf(toSpawn.x * toSpawn.x + toSpawn.z * toSpawn.z);
-                    if (len > 0) {
-                        animal->direction.x = toSpawn.x / len;
-                        animal->direction.z = toSpawn.z / len;
+            // Longer interval for chickens before random turn
+            animal->moveInterval = 2.0f + GetRandomValue(0, 15)/10.0f; // 2.0 to 3.5 seconds
+        }
+
+        if (animal->isMoving) {
+            Vector3 newPosition = animal->position; // Start with current position
+
+            newPosition.x += animal->direction.x * animal->speed;
+            newPosition.z += animal->direction.z * animal->speed;
+
+            // Enclosure boundaries
+            float minX = ENCLOSURE_CENTER_2.x - (ENCLOSURE_WIDTH_2 / 2.0f);
+            float maxX = ENCLOSURE_CENTER_2.x + (ENCLOSURE_WIDTH_2 / 2.0f);
+            float minZ = ENCLOSURE_CENTER_2.z - (ENCLOSURE_LENGTH_2 / 2.0f);
+            float maxZ = ENCLOSURE_CENTER_2.z + (ENCLOSURE_LENGTH_2 / 2.0f);
+            bool bounced = false;
+
+            // X-axis reflection
+            if (newPosition.x <= minX + enclosurePadding) {
+                newPosition.x = minX + enclosurePadding;
+                animal->direction.x *= -1.0f;
+                animal->direction.z += GetRandomValue(-1, 1) / 20.0f; // Tiny perpendicular nudge
+                bounced = true;
+            } else if (newPosition.x >= maxX - enclosurePadding) {
+                newPosition.x = maxX - enclosurePadding;
+                animal->direction.x *= -1.0f;
+                animal->direction.z += GetRandomValue(-1, 1) / 20.0f;
+                bounced = true;
+            }
+
+            // Z-axis reflection
+            if (newPosition.z <= minZ + enclosurePadding) {
+                newPosition.z = minZ + enclosurePadding;
+                animal->direction.z *= -1.0f;
+                animal->direction.x += GetRandomValue(-1, 1) / 20.0f;
+                bounced = true;
+            } else if (newPosition.z >= maxZ - enclosurePadding) {
+                newPosition.z = maxZ - enclosurePadding;
+                animal->direction.z *= -1.0f;
+                animal->direction.x += GetRandomValue(-1, 1) / 20.0f;
+                bounced = true;
+            }
+
+            if (bounced) {
+                animal->direction = Vector3Normalize(animal->direction);
+                // Force commitment to bounce direction: Reset timer to make it take longer for next RANDOM turn decision
+                animal->moveTimer = animal->moveInterval * 0.25f; // Positive value, spend 75% of interval committed to bounce
+                                                                // Effectively, next random turn will be delayed.
+            }
+            animal->position = newPosition; // Position after bounce/clamp
+            animal->rotationAngle = atan2f(animal->direction.x, animal->direction.z) * RAD2DEG;
+        }
+
+    } else {
+        // Original logic for other animals (unchanged from previous state)
+        if (animal->moveTimer >= animal->moveInterval) {
+            animal->moveTimer = 0.0f;
+            if (GetRandomValue(0, 100) < 70) { 
+                animal->isMoving = true;
+                float distanceFromSpawn = Vector3Distance(animal->position, animal->spawnPosition);
+                if (GetRandomValue(0, 100) < 80 || distanceFromSpawn > animal->maxWanderDistance) {
+                    if (distanceFromSpawn > animal->maxWanderDistance * 0.7f) {
+                        Vector3 toSpawn = Vector3Subtract(animal->spawnPosition, animal->position);
+                        animal->direction = Vector3Normalize(toSpawn);
+                    } else {
+                        float turnAmount = GetRandomValue(-45, 45) * DEG2RAD;
+                        float currentAngle = atan2f(animal->direction.x, animal->direction.z);
+                        float newAngle = currentAngle + turnAmount;
+                        animal->direction.x = sinf(newAngle);
+                        animal->direction.z = cosf(newAngle);
                     }
                 } else {
-                    // Small random adjustment to current direction (continue forward with slight variation)
-                    float turnAmount = GetRandomValue(-10, 10) / 100.0f; // Small direction change (-0.1 to 0.1)
+                    float turnAngle = GetRandomValue(-90, 90) * DEG2RAD;
                     float currentAngle = atan2f(animal->direction.x, animal->direction.z);
-                    float newAngle = currentAngle + turnAmount;
+                    float newAngle = currentAngle + turnAngle;
                     animal->direction.x = sinf(newAngle);
                     animal->direction.z = cosf(newAngle);
                 }
             } else {
-                // 20% chance to make a significant direction change
-                float turnAngle = GetRandomValue(-90, 90) * DEG2RAD;
-                float currentAngle = atan2f(animal->direction.x, animal->direction.z);
-                float newAngle = currentAngle + turnAngle;
-                animal->direction.x = sinf(newAngle);
-                animal->direction.z = cosf(newAngle);
+                animal->isMoving = false;
             }
-            
-            // Calculate rotation angle based on direction
-            animal->rotationAngle = atan2f(animal->direction.x, animal->direction.z) * RAD2DEG;
-        } else {
-            animal->isMoving = false;
+            animal->moveInterval = (animal->isMoving ? 1.0f : 2.0f) + GetRandomValue(0, 20) / 10.0f;
         }
-        
-        // Randomize next interval (slightly longer when idle to make movement more natural)
-        animal->moveInterval = (animal->isMoving ? 1.0f : 2.0f) + GetRandomValue(0, 20) / 10.0f;
+
+        if (animal->isMoving) {
+            Vector3 oldPosition = animal->position; 
+            animal->position.x += animal->direction.x * animal->speed;
+            animal->position.z += animal->direction.z * animal->speed;
+            
+            float boundary = terrainSize/2.0f - 2.0f;
+            if (animal->position.x < -boundary) animal->position.x = -boundary;
+            if (animal->position.x > boundary) animal->position.x = boundary;
+            if (animal->position.z < -boundary) animal->position.z = -boundary;
+            if (animal->position.z > boundary) animal->position.z = boundary;
+            
+            animal->rotationAngle = atan2f(animal->direction.x, animal->direction.z) * RAD2DEG;
+        }
     }
-    
-    // Update position if animal is moving
-    if (animal->isMoving) {
-        // Store original position for collision handling
-        Vector3 oldPosition = animal->position;
-        
-        // Try to move in the current direction
-        animal->position.x += animal->direction.x * animal->speed;
-        animal->position.z += animal->direction.z * animal->speed;
-        
-        // Keep within terrain boundaries
-        float boundary = terrainSize/2.0f - 2.0f;
-        if (animal->position.x < -boundary) animal->position.x = -boundary;
-        if (animal->position.x > boundary) animal->position.x = boundary;
-        if (animal->position.z < -boundary) animal->position.z = -boundary;
-        
+
+    // --- Generic Collision Handling for ALL Animals (AFTER type-specific movement) ---
+    if (animal->isMoving) { // Only check collisions if animal attempted to move
+        Vector3 preCollisionPosition = animal->position; // Position after movement but before building/other animal collision
+
         // Check for collisions with buildings
         int collidedBuildingIndex = -1;
-        if (IsCollisionWithBuilding(animal->position, animal->scale * 1.5f, &collidedBuildingIndex)) {
-            // Collision occurred, revert position
-            animal->position = oldPosition;
-            
-            // Calculate new direction away from building
-            Vector3 awayFromBuilding = Vector3Subtract(animal->position, buildings[collidedBuildingIndex].position);
-            float len = sqrtf(awayFromBuilding.x * awayFromBuilding.x + awayFromBuilding.z * awayFromBuilding.z);
-            
-            if (len > 0) {
-                // Normalize the direction vector
-                awayFromBuilding.x /= len;
-                awayFromBuilding.z /= len;
-                
-                // Add some randomness to prevent animals getting stuck
-                float randomAngle = GetRandomValue(-30, 30) * DEG2RAD;
-                float currentAngle = atan2f(awayFromBuilding.x, awayFromBuilding.z);
-                float newAngle = currentAngle + randomAngle;
-                
-                // Set new direction
-                animal->direction.x = sinf(newAngle);
-                animal->direction.z = cosf(newAngle);
-                
-                // Update rotation angle to match new direction
-                animal->rotationAngle = atan2f(animal->direction.x, animal->direction.z) * RAD2DEG;
-                
-                // Reset timer to make a new decision sooner
-                animal->moveTimer = animal->moveInterval - 0.5f;
-                
-                // Try to move in the new direction
-                animal->position.x += animal->direction.x * animal->speed;
-                animal->position.z += animal->direction.z * animal->speed;
-            }
+        // The IsCollisionWithBuilding function already has logic to ignore buildings with scale 1.0f (like the ChickenCoop)
+        if (IsCollisionWithBuilding(animal->position, animal->scale * 0.7f, &collidedBuildingIndex)) {
+            animal->position = Vector3MoveTowards(preCollisionPosition, buildings[collidedBuildingIndex].position, -animal->speed); // Try to step back slightly
+
+            // Simplified bounce off building for all animals
+            Vector3 awayFromBuilding = Vector3Normalize(Vector3Subtract(animal->position, buildings[collidedBuildingIndex].position));
+            animal->direction.x = awayFromBuilding.x + GetRandomValue(-1,1)/10.0f;
+            animal->direction.z = awayFromBuilding.z + GetRandomValue(-1,1)/10.0f;
+            animal->direction = Vector3Normalize(animal->direction);
+            animal->rotationAngle = atan2f(animal->direction.x, animal->direction.z) * RAD2DEG;
+            animal->moveTimer = 0; // Re-evaluate direction quickly
         }
-        
+
         // Check for collisions with other animals
         for (int i = 0; i < animalCount; i++) {
             if (!animals[i].active || &animals[i] == animal) continue;
-            
-            // Simple collision detection
+
             float distance = Vector3Distance(animal->position, animals[i].position);
-            float minDistance = (animal->scale + animals[i].scale) * 1.2f;
-            
+            float minDistance = (animal->scale + animals[i].scale) * 0.6f; // Reduced for less pushing
+
             if (distance < minDistance) {
-                // Calculate direction away from the other animal
-                Vector3 awayDir = {
-                    animal->position.x - animals[i].position.x,
-                    0,
-                    animal->position.z - animals[i].position.z
-                };
+                Vector3 resolutionVector = Vector3Normalize(Vector3Subtract(animal->position, animals[i].position));
+                // Move both animals away from each other slightly
+                animal->position = Vector3Add(animal->position, Vector3Scale(resolutionVector, (minDistance - distance) / 2.0f));
+                // animals[i].position = Vector3Subtract(animals[i].position, Vector3Scale(resolutionVector, (minDistance - distance) / 2.0f)); 
+                // ^ Modifying other animals here can be complex; focus on current animal's reaction.
                 
-                float len = sqrtf(awayDir.x * awayDir.x + awayDir.z * awayDir.z);
-                if (len > 0) {
-                    // Normalize the direction
-                    awayDir.x /= len;
-                    awayDir.z /= len;
-                    
-                    // Move away from the collision
-                    animal->position = oldPosition; // Revert to old position first
-                    animal->position.x += awayDir.x * animal->speed * 1.5f;
-                    animal->position.z += awayDir.z * animal->speed * 1.5f;
-                    
-                    // Update direction and angle for natural movement
-                    animal->direction = awayDir;
-                    animal->rotationAngle = atan2f(animal->direction.x, animal->direction.z) * RAD2DEG;
-                    
-                    // Reset timer to make a new decision sooner
-                    animal->moveTimer = animal->moveInterval - 0.5f;
-                }
+                // Current animal decides to change direction
+                animal->direction = resolutionVector; // Move directly away
+                animal->rotationAngle = atan2f(animal->direction.x, animal->direction.z) * RAD2DEG;
+                animal->moveTimer = animal->moveInterval * 0.1f; // Quicker re-evaluation
             }
         }
     }
-    
+    // --- FINAL FAILSAFE CLAMP for Chickens (after all other collisions) ---
+    if (animal->type == ANIMAL_CHICKEN) {
+        float minX = ENCLOSURE_CENTER_2.x - (ENCLOSURE_WIDTH_2 / 2.0f);
+        float maxX = ENCLOSURE_CENTER_2.x + (ENCLOSURE_WIDTH_2 / 2.0f);
+        float minZ = ENCLOSURE_CENTER_2.z - (ENCLOSURE_LENGTH_2 / 2.0f);
+        float maxZ = ENCLOSURE_CENTER_2.z + (ENCLOSURE_LENGTH_2 / 2.0f);
+        float padding = 0.05f; // Minimal padding
+
+        if (animal->position.x < minX + padding) animal->position.x = minX + padding;
+        if (animal->position.x > maxX - padding) animal->position.x = maxX - padding;
+        if (animal->position.z < minZ + padding) animal->position.z = minZ + padding;
+        if (animal->position.z > maxZ - padding) animal->position.z = maxZ - padding;
+    }
+
     // Update animation
     animal->animFrameCounter++;
     
@@ -1602,6 +1643,10 @@ void DrawClouds(Camera camera) {
 #define MAX_SOUND_INTERVAL 17.0f  // Maximum time between sounds (in seconds)
 #define MIN_SOUNDS_PER_MINUTE 8   // Minimum number of sounds per minute
 
+// Chicken-specific sound intervals (more frequent)
+#define CHICKEN_MIN_SOUND_INTERVAL 15.0f  // Chickens make sounds more frequently
+#define CHICKEN_MAX_SOUND_INTERVAL 25.0f  // Maximum time between chicken sounds
+
 // Sound structure for animals
 typedef struct {
     Sound sound;
@@ -1704,6 +1749,44 @@ void UnloadAnimalSounds(void) {
     }
     
     CloseAudioDevice();
+}
+
+// Function to check if a position is inside the chicken enclosure
+bool IsPositionInChickenEnclosure(Vector3 position) {
+    // Define the boundaries of the chicken enclosure (second enclosure)
+    float minX = ENCLOSURE_CENTER_2.x - (ENCLOSURE_WIDTH_2 / 2.0f);
+    float maxX = ENCLOSURE_CENTER_2.x + (ENCLOSURE_WIDTH_2 / 2.0f);
+    float minZ = ENCLOSURE_CENTER_2.z - (ENCLOSURE_LENGTH_2 / 2.0f);
+    float maxZ = ENCLOSURE_CENTER_2.z + (ENCLOSURE_LENGTH_2 / 2.0f);
+
+    // Add a small buffer to keep chickens away from the fence
+    float buffer = 1.0f;
+    return (position.x > minX + buffer && position.x < maxX - buffer &&
+            position.z > minZ + buffer && position.z < maxZ - buffer);
+}
+
+// Function to get a random position inside the chicken enclosure
+Vector3 GetRandomChickenEnclosurePosition(void) {
+    float minX = ENCLOSURE_CENTER_2.x - (ENCLOSURE_WIDTH_2 / 2.0f);
+    float maxX = ENCLOSURE_CENTER_2.x + (ENCLOSURE_WIDTH_2 / 2.0f);
+    float minZ = ENCLOSURE_CENTER_2.z - (ENCLOSURE_LENGTH_2 / 2.0f);
+    float maxZ = ENCLOSURE_CENTER_2.z + (ENCLOSURE_LENGTH_2 / 2.0f);
+
+    // Add buffer to keep away from fence
+    float buffer = 1.0f;
+    Vector3 position;
+    position.x = GetRandomValue((int)((minX + buffer) * 100), (int)((maxX - buffer) * 100)) / 100.0f;
+    position.z = GetRandomValue((int)((minZ + buffer) * 100), (int)((maxZ - buffer) * 100)) / 100.0f;
+    position.y = 0.0f;
+    return position;
+}
+
+// Function to spawn multiple chickens in the enclosure
+void SpawnChickensInEnclosure(int count) {
+    for (int i = 0; i < count && animalCount < MAX_ANIMALS; i++) {
+        Vector3 position = GetRandomChickenEnclosurePosition();
+        SpawnAnimal(ANIMAL_CHICKEN, position, FIXED_TERRAIN_SIZE);
+    }
 }
 
 int main(void)
@@ -1910,14 +1993,12 @@ int main(void)
     }
 
     // --- Second Animal Enclosure ---
-    const float ENCLOSURE_WIDTH_2 = 9.0f;   // Bigger width
-    const float ENCLOSURE_LENGTH_2 = 10.0f; // Bigger length
-    const Vector3 ENCLOSURE_CENTER_2 = (Vector3){ -45.0f, 0.0f, -3.0f }; // Center position of second enclosure
     Vector3 startPos2 = {
         ENCLOSURE_CENTER_2.x - (ENCLOSURE_WIDTH_2 / 2.0f),
         0.0f,
         ENCLOSURE_CENTER_2.z - (ENCLOSURE_LENGTH_2 / 2.0f)
     };
+
     int fenceIndex2 = fenceIndex; // Continue after the first enclosure
 
     // Top side (left to right, moved even more to the right)
@@ -1933,6 +2014,7 @@ int main(void)
         buildings[fenceIndex2].rotationAngle = 0.0f;
         fenceIndex2++;
     }
+
     // Right side (top to bottom, moved further to the exterior)
     for (int i = 0; i <= (int)ENCLOSURE_LENGTH_2; i++) {
         if (fenceIndex2 >= MAX_BUILDINGS) break;
@@ -1946,6 +2028,7 @@ int main(void)
         buildings[fenceIndex2].rotationAngle = 90.0f;
         fenceIndex2++;
     }
+
     // Bottom side (right to left, move lower, inwards, and further to the left)
     for (int i = 0; i <= (int)ENCLOSURE_WIDTH_2 + 1; i++) {
         if (fenceIndex2 >= MAX_BUILDINGS) break;
@@ -1959,6 +2042,7 @@ int main(void)
         buildings[fenceIndex2].rotationAngle = 180.0f;
         fenceIndex2++;
     }
+
     // Left side (top to bottom, move one position to the inside)
     for (int i = 0; i <= (int)ENCLOSURE_LENGTH_2; i++) {
         if (fenceIndex2 >= MAX_BUILDINGS) break;
@@ -1972,6 +2056,7 @@ int main(void)
         buildings[fenceIndex2].rotationAngle = 270.0f;
         fenceIndex2++;
     }
+
     fenceIndex = fenceIndex2; // Update main fenceIndex for any further buildings
 
     // Load and place ChickenCoop in the second enclosure
@@ -2146,6 +2231,11 @@ int main(void)
             }
         }
 
+        // Spawn 5 chickens in the enclosure when K is pressed
+        if (IsKeyPressed(KEY_K)) {
+            SpawnChickensInEnclosure(5);
+        }
+
         if (isRecordingPath && currentRecordingPointCount < MAX_PATH_POINTS) {
             if (currentRecordingPointCount == 0) {
                 // Always record the first point
@@ -2206,6 +2296,15 @@ int main(void)
 
         // Draw all custom roads
         DrawAllCustomRoads();
+
+        // --- DEBUG: Draw Chicken Enclosure Boundaries ---
+        /*BoundingBox enclosureBounds = {
+            (Vector3){ ENCLOSURE_CENTER_2.x - ENCLOSURE_WIDTH_2/2.0f, -0.5f, ENCLOSURE_CENTER_2.z - ENCLOSURE_LENGTH_2/2.0f },
+            (Vector3){ ENCLOSURE_CENTER_2.x + ENCLOSURE_WIDTH_2/2.0f, 0.5f, ENCLOSURE_CENTER_2.z + ENCLOSURE_LENGTH_2/2.0f }
+        };
+        DrawBoundingBox(enclosureBounds, LIME); // Draw a lime green box for the enclosure
+        */
+        // --- END DEBUG ---
 
         // Draw buildings
         for (int i = 0; i < MAX_BUILDINGS; i++)
