@@ -10,7 +10,7 @@
 #include <string.h>  // For bool type
 #define MAX_COLUMNS 20
 #define MAX_ANIMALS 100
-#define MAX_BUILDINGS 24  // For barn, horse barn, and 22 fence segments for the enclosure
+#define MAX_BUILDINGS 64  // Increased for more fence segments and future expansion
 #define MAX_CLOUDS 5000   // Increased number of clouds
 #define MAX_PLANTS 3000 // Maximum number of plants (increased from 1000 to 2000)
 #define MAX_CLOUD_TYPES 1 // Number of different cloud types/textures
@@ -129,6 +129,7 @@ typedef struct {
     float maxWanderDistance; // Maximum distance from spawn point
     bool isMoving;
     bool active;
+    void* soundData; // Added sound data pointer
 } Animal;
 
 // Global array of animals
@@ -1296,13 +1297,14 @@ void UpdateCameraCustom(Camera *camera, int mode)
         0.0f);                               // Zoom
 }
 
-// Function to check if an animal is colliding with a building
-bool IsCollisionWithBuilding(Vector3 animalPosition, float animalRadius, int* buildingIndex) {
+// Function to check if an animal is colliding with a building or tree
+bool IsCollisionWithBuilding(Vector3 position, float radius, int* buildingIndex) {
+    // First check buildings
     for (int i = 0; i < MAX_BUILDINGS; i++) {
-        if (buildings[i].model.meshCount == 0) continue; // Skip uninitialized or unloaded buildings
+        if (buildings[i].model.meshCount == 0) continue; // Skip uninitialized buildings
 
-        // Calculate distance between animal and building center
-        float distance = Vector3Distance(animalPosition, buildings[i].position);
+        // Calculate distance between position and building center
+        float distance = Vector3Distance(position, buildings[i].position);
         
         // Use a collision radius based on the building type/index
         float buildingRadius;
@@ -1331,8 +1333,25 @@ bool IsCollisionWithBuilding(Vector3 animalPosition, float animalRadius, int* bu
         }
         
         // Check for collision
-        if (distance < (animalRadius + buildingRadius)) {
+        if (distance < (radius + buildingRadius)) {
             if (buildingIndex != NULL) *buildingIndex = i;
+            return true;
+        }
+    }
+
+    // Then check trees
+    for (int i = 0; i < plantCount; i++) {
+        if (!plants[i].active || plants[i].type != PLANT_TREE) continue;
+
+        // Calculate distance between position and tree center
+        float distance = Vector3Distance(position, plants[i].position);
+        
+        // Tree collision radius based on scale
+        float treeRadius = plants[i].scale * 1.7f; // Adjust this multiplier as needed
+        
+        // Check for collision
+        if (distance < (radius + treeRadius)) {
+            if (buildingIndex != NULL) *buildingIndex = -1; // Use -1 to indicate tree collision
             return true;
         }
     }
@@ -1539,6 +1558,116 @@ void DrawClouds(Camera camera) {
     }
 }
 
+// Sound-related constants
+#define MAX_SOUND_DISTANCE 30.0f  // Maximum distance at which sounds can be heard
+#define MIN_SOUND_INTERVAL 9.5f   // Minimum time between sounds (in seconds)
+#define MAX_SOUND_INTERVAL 17.0f  // Maximum time between sounds (in seconds)
+#define MIN_SOUNDS_PER_MINUTE 8   // Minimum number of sounds per minute
+
+// Sound structure for animals
+typedef struct {
+    Sound sound;
+    float nextSoundTime;
+    float soundInterval;
+} AnimalSound;
+
+// Function to load animal sounds
+void LoadAnimalSounds(void) {
+    // Initialize audio device
+    InitAudioDevice();
+    
+    // Load sounds for each animal type
+    for (int i = 0; i < animalCount; i++) {
+        if (!animals[i].active) continue;
+        
+        AnimalSound* animalSound = (AnimalSound*)MemAlloc(sizeof(AnimalSound));
+        if (animalSound == NULL) {
+            TraceLog(LOG_ERROR, "Failed to allocate memory for animal sound");
+            continue;
+        }
+        
+        // Load appropriate sound based on animal type
+        switch(animals[i].type) {
+            case ANIMAL_HORSE:
+                animalSound->sound = LoadSound("sounds/horse.mp3");
+                break;
+            case ANIMAL_CAT:
+                animalSound->sound = LoadSound("sounds/cat.mp3");
+                break;
+            case ANIMAL_DOG:
+                animalSound->sound = LoadSound("sounds/dog.mp3");
+                break;
+            case ANIMAL_COW:
+                animalSound->sound = LoadSound("sounds/cow.mp3");
+                break;
+            case ANIMAL_PIG:
+                animalSound->sound = LoadSound("sounds/pig.mp3");
+                break;
+
+            case ANIMAL_CHICKEN:
+                animalSound->sound = LoadSound("sounds/chicken.mp3");
+                break;
+             
+            default:
+                animalSound->sound = (Sound){0};
+                break;
+        }
+        
+        // Initialize sound timing
+        animalSound->nextSoundTime = GetTime() + GetRandomValue(0, 5); // Random initial delay
+        animalSound->soundInterval = MIN_SOUND_INTERVAL + 
+            (float)GetRandomValue(0, (int)((MAX_SOUND_INTERVAL - MIN_SOUND_INTERVAL) * 100)) / 100.0f;
+        
+        // Store the sound data with the animal
+        animals[i].soundData = animalSound;
+    }
+}
+
+// Function to play animal sounds with distance-based volume
+void PlayAnimalSound(Animal* animal, Camera camera) {
+    if (!animal || !animal->active || !animal->soundData) return;
+    
+    AnimalSound* soundData = (AnimalSound*)animal->soundData;
+    float currentTime = GetTime();
+    
+    // Check if it's time to play the sound
+    if (currentTime >= soundData->nextSoundTime) {
+        // Calculate distance to camera
+        float distance = Vector3Distance(animal->position, camera.position);
+        
+        // Only play sound if within hearing range
+        if (distance <= MAX_SOUND_DISTANCE) {
+            // Calculate volume based on distance (1.0 at 0 distance, 0.0 at MAX_SOUND_DISTANCE)
+            float volume = 1.0f - (distance / MAX_SOUND_DISTANCE);
+            volume = Clamp(volume, 0.0f, 1.0f);
+            
+            // Set volume and play sound
+            SetSoundVolume(soundData->sound, volume);
+            PlaySound(soundData->sound);
+            
+            // Schedule next sound
+            soundData->nextSoundTime = currentTime + soundData->soundInterval;
+            // Randomize next interval
+            soundData->soundInterval = MIN_SOUND_INTERVAL + 
+                (float)GetRandomValue(0, (int)((MAX_SOUND_INTERVAL - MIN_SOUND_INTERVAL) * 100)) / 100.0f;
+        }
+    }
+}
+
+// Function to unload animal sounds
+void UnloadAnimalSounds(void) {
+    for (int i = 0; i < animalCount; i++) {
+        if (!animals[i].active || !animals[i].soundData) continue;
+        
+        AnimalSound* soundData = (AnimalSound*)animals[i].soundData;
+        UnloadSound(soundData->sound);
+        MemFree(soundData);
+        animals[i].soundData = NULL;
+    }
+    
+    CloseAudioDevice();
+}
+
 int main(void)
 {
     // const int screenWidth = 1512;
@@ -1667,6 +1796,81 @@ int main(void)
     buildings[4].scale = 0.5f; // Adjust scale as needed
     buildings[4].rotationAngle = 108.0f; // Adjust rotation as needed
 
+    // Create animal enclosure using fences
+    const float FENCE_MODEL_SCALE_CONST = 0.2f;
+    const float ENCLOSURE_WIDTH = 5.0f;  // 5 units wide
+    const float ENCLOSURE_LENGTH = 6.0f; // 6 units long
+    const float FENCE_SPACING = 1.0f;    // Space between fence segments
+    const Vector3 ENCLOSURE_CENTER = (Vector3){ 15.0f, 0.0f, 15.0f }; // Center position of enclosure
+
+    // Calculate starting position (top-left corner)
+    Vector3 startPos = {
+        ENCLOSURE_CENTER.x - (ENCLOSURE_WIDTH / 2.0f),
+        0.0f,
+        ENCLOSURE_CENTER.z - (ENCLOSURE_LENGTH / 2.0f)
+    };
+
+    int fenceIndex = 5; // Start after existing buildings
+
+    // Load fence model
+    Model fenceModel = LoadModel("buildings/Fence.glb");
+    if (fenceModel.meshCount == 0) {
+        TraceLog(LOG_ERROR, "Failed to load buildings/Fence.glb");
+    }
+
+    // Top side (left to right, moved even more to the right)
+    for (int i = 0; i <= (int)ENCLOSURE_WIDTH + 1; i++) {
+        if (fenceIndex >= MAX_BUILDINGS) break;
+        buildings[fenceIndex].model = fenceModel;
+        buildings[fenceIndex].position = (Vector3){
+            startPos.x - (2 * FENCE_SPACING) + (i * FENCE_SPACING) + (2 * FENCE_SPACING),
+            startPos.y,
+            startPos.z - FENCE_SPACING
+        };
+        buildings[fenceIndex].scale = FENCE_MODEL_SCALE_CONST;
+        buildings[fenceIndex].rotationAngle = 0.0f;
+        fenceIndex++;
+    }
+    // Right side (top to bottom, moved further to the exterior)
+    for (int i = 0; i <= (int)ENCLOSURE_LENGTH; i++) {
+        if (fenceIndex >= MAX_BUILDINGS) break;
+        buildings[fenceIndex].model = fenceModel;
+        buildings[fenceIndex].position = (Vector3){
+            startPos.x + ((ENCLOSURE_WIDTH + 1) * FENCE_SPACING) + FENCE_SPACING,
+            startPos.y,
+            startPos.z + (i * FENCE_SPACING)
+        };
+        buildings[fenceIndex].scale = FENCE_MODEL_SCALE_CONST;
+        buildings[fenceIndex].rotationAngle = 90.0f;
+        fenceIndex++;
+    }
+    // Bottom side (right to left, move lower, inwards, and further to the left)
+    for (int i = 0; i <= (int)ENCLOSURE_WIDTH + 1; i++) {
+        if (fenceIndex >= MAX_BUILDINGS) break;
+        buildings[fenceIndex].model = fenceModel;
+        buildings[fenceIndex].position = (Vector3){
+            startPos.x + FENCE_SPACING + ((ENCLOSURE_WIDTH + 1) * FENCE_SPACING) - (i * FENCE_SPACING) - FENCE_SPACING,
+            startPos.y,
+            startPos.z + ((ENCLOSURE_LENGTH) * FENCE_SPACING) + FENCE_SPACING
+        };
+        buildings[fenceIndex].scale = FENCE_MODEL_SCALE_CONST;
+        buildings[fenceIndex].rotationAngle = 180.0f;
+        fenceIndex++;
+    }
+    // Left side (top to bottom, move one position to the inside)
+    for (int i = 0; i <= (int)ENCLOSURE_LENGTH; i++) {
+        if (fenceIndex >= MAX_BUILDINGS) break;
+        buildings[fenceIndex].model = fenceModel;
+        buildings[fenceIndex].position = (Vector3){
+            startPos.x - FENCE_SPACING,
+            startPos.y,
+            startPos.z + (i * FENCE_SPACING)
+        };
+        buildings[fenceIndex].scale = FENCE_MODEL_SCALE_CONST;
+        buildings[fenceIndex].rotationAngle = 270.0f;
+        fenceIndex++;
+    }
+
     // Load nature scene model
     // Model natureSceneModel = LoadModel("scenes/nature&mountains.glb");
     // Vector3 natureScenePosition = { -25.0f, 0.0f, -25.0f }; // Further from the barn
@@ -1760,6 +1964,9 @@ int main(void)
     // Initialize the cloud system
     InitClouds(FIXED_TERRAIN_SIZE);
 
+    // Load animal sounds
+    LoadAnimalSounds();
+
     // Generate random columns for visualization
     float heights[MAX_COLUMNS] = {0};
     Vector3 positions[MAX_COLUMNS] = {0};
@@ -1779,6 +1986,13 @@ int main(void)
     {
         // Update camera
         UpdateCameraCustom(&camera, cameraMode);
+
+        // Update and play animal sounds
+        for (int i = 0; i < animalCount; i++) {
+            if (animals[i].active) {
+                PlayAnimalSound(&animals[i], camera);
+            }
+        }
 
         // --- Path Recording Logic ---
         if (IsKeyPressed(KEY_R)) {
@@ -1938,6 +2152,9 @@ int main(void)
 
     // De-Initialization
     UnloadTexture(terrainTexture);
+    
+    // Unload animal sounds
+    UnloadAnimalSounds();
     
     // Unload all animals
     for (int i = 0; i < animalCount; i++) {
