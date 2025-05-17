@@ -452,6 +452,25 @@ Vector3 secondRoadPoints[] = {
 int secondRoadNumPoints = 41;
 char secondRoadName[] = "Second Road";
 
+Vector3 thirdRoadPoints[] = {
+    { -13.91f, 1.75f, 13.08f },
+    { -15.59f, 1.75f, 14.18f },
+    { -17.33f, 1.75f, 15.32f },
+    { -19.07f, 1.75f, 16.46f },
+    { -20.81f, 1.75f, 17.60f },
+    { -22.57f, 1.75f, 18.70f },
+    { -24.40f, 1.75f, 19.68f },
+    { -26.35f, 1.75f, 20.41f },
+    { -28.39f, 1.75f, 20.82f },
+    { -30.46f, 1.75f, 20.97f },
+    { -32.46f, 1.75f, 21.09f },
+    { -34.45f, 1.75f, 21.20f },
+    { -36.51f, 1.75f, 21.51f },
+    { -38.51f, 1.75f, 22.08f }
+};
+int thirdRoadNumPoints = 14;
+char thirdRoadName[] = "Third Road";
+
 // Function to generate road segment models for a specific CustomRoad
 void GenerateRoadSegments(CustomRoad* road, float rWidth, Texture2D rTexture) {
     if (!road || road->numPoints < 2) {
@@ -1666,6 +1685,18 @@ int main(void)
         newRoad->numPoints = secondRoadNumPoints;
         // Use memcpy to copy the points array
         memcpy(newRoad->points, secondRoadPoints, sizeof(Vector3) * newRoad->numPoints);
+        // Use individual segments to create the road path
+        GenerateRoadSegments(newRoad, roadWidth, roadTexture);
+        totalCustomRoadsCount++; // Increment the count of active roads
+        TraceLog(LOG_INFO, "Created road '%s' with %d points", newRoad->name, newRoad->numPoints);
+    }
+
+    if (totalCustomRoadsCount < MAX_CUSTOM_ROADS && thirdRoadNumPoints > 1) {
+        CustomRoad* newRoad = &allCustomRoads[totalCustomRoadsCount];
+        snprintf(newRoad->name, sizeof(newRoad->name), "%s", thirdRoadName);
+        newRoad->numPoints = thirdRoadNumPoints;
+        // Use memcpy to copy the points array
+        memcpy(newRoad->points, thirdRoadPoints, sizeof(Vector3) * newRoad->numPoints);
         // Use individual segments to create the road path
         GenerateRoadSegments(newRoad, roadWidth, roadTexture);
         totalCustomRoadsCount++; // Increment the count of active roads
