@@ -81,6 +81,8 @@ void SpawnPlant(PlantType type, Vector3 position, float scale, float rotation);
 Vector3 GetRandomPlantPosition(float terrainSize);
 void DrawPlants(Camera camera); // Modified to accept Camera
 void UnloadPlantResources(void);
+void ClearPlantsNearRoads(float clearExtraRadius); // Function to clear plants blocking roads
+bool IsNearBankOrOnRoadToBank(Vector3 position); // Check if player is near bank or on road to bank
 
 // --- Global Models for Plants ---
 Model globalTreeModel;
@@ -260,7 +262,7 @@ Vector3 GetRandomPlantPosition(float terrainSize) { // terrainSize argument is k
             } else if (i == 1) { // horse_barn.glb (index 1, scale 0.5f)
                 exclusionRadiusForPlant = 7.0f; // Increased from 4.5f
             } else if (i == 2) { // Bank.glb (index 2, scale 0.0002f)
-                exclusionRadiusForPlant = 12.0f; // Increased from 8.0f
+                exclusionRadiusForPlant = 12.0f; // Restored to larger value to prevent road blockage
             } else if (i == 3) { // constructionHouse.glb (index 3, scale 0.1f)
                 exclusionRadiusForPlant = 9.0f;  // Exclusion radius for Construction House
             } else if (i == 4) { // FarmHouse.glb (index 4)
@@ -325,6 +327,73 @@ void UnloadPlantResources(void) {
     // in terms of loading/unloading. They just use a reference to the global ones.
 }
 
+// Function to clear plants that might be blocking roads
+void ClearPlantsNearRoads(float clearExtraRadius) {
+    TraceLog(LOG_INFO, "Checking for plants blocking roads...");
+    int removedCount = 0;
+    
+    // Check every plant
+    for (int i = 0; i < plantCount; i++) {
+        if (!plants[i].active) continue;
+        
+        // For each road
+        for (int roadIndex = 0; roadIndex < totalCustomRoadsCount; roadIndex++) {
+            if (!allCustomRoads[roadIndex].isActive || allCustomRoads[roadIndex].numPoints < 2) continue;
+            
+            // Check each segment of this road
+            for (int segmentIndex = 0; segmentIndex < allCustomRoads[roadIndex].numPoints - 1; segmentIndex++) {
+                Vector3 p1 = allCustomRoads[roadIndex].points[segmentIndex];
+                Vector3 p2 = allCustomRoads[roadIndex].points[segmentIndex + 1];
+                
+                // Project plant position onto the road segment
+                Vector3 segmentVec = Vector3Subtract(p2, p1);
+                Vector3 plantVec = Vector3Subtract(plants[i].position, p1);
+                
+                float segmentLengthSq = Vector3LengthSqr(segmentVec);
+                if (segmentLengthSq == 0.0f) continue; // Avoid division by zero
+                
+                float t = Vector3DotProduct(plantVec, segmentVec) / segmentLengthSq;
+                t = Clamp(t, 0.0f, 1.0f); // Ensure projection is on the segment
+                
+                Vector3 closestPoint = Vector3Add(p1, Vector3Scale(segmentVec, t));
+                
+                // Check if plant is too close to the road
+                // Use a larger radius for taller/larger plants like trees
+                float plantSize = (plants[i].type == PLANT_TREE) ? plants[i].scale * 1.7f : plants[i].scale;
+                float clearRadius = (roadWidth / 2.0f) + clearExtraRadius + plantSize;
+                
+                if (Vector3Distance(plants[i].position, closestPoint) < clearRadius) {
+                    // Plant is too close to road - deactivate it
+                    plants[i].active = false;
+                    removedCount++;
+                    break; // No need to check other segments for this plant
+                }
+            }
+            
+            if (!plants[i].active) break; // Skip to next plant if already marked for removal
+        }
+    }
+    
+    // Check specifically along the path to the bank (second road)
+    if (totalCustomRoadsCount >= 2) {
+        // Get bank position
+        Vector3 bankPosition = buildings[2].position;
+        float bankClearRadius = 15.0f; // Extra clearance around the bank
+        
+        // Remove plants too close to the bank
+        for (int i = 0; i < plantCount; i++) {
+            if (!plants[i].active) continue;
+            
+            if (Vector3Distance(plants[i].position, bankPosition) < bankClearRadius) {
+                plants[i].active = false;
+                removedCount++;
+            }
+        }
+    }
+    
+    TraceLog(LOG_INFO, "Removed %d plants that were blocking roads.", removedCount);
+}
+
 // Global array of terrain chunks
 TerrainChunk terrainChunks[MAX_TERRAIN_CHUNKS];
 
@@ -352,7 +421,7 @@ bool IsPositionOnRoad(Vector3 position, float rWidth) {
                 Vector3 closestPointOnSegment = Vector3Add(p1, Vector3Scale(segmentVec, t));
                 
                 // Check distance from the plant's position to the closest point on the segment's centerline
-                if (Vector3Distance(position, closestPointOnSegment) < (rWidth / 2.0f) + 1.0f) { // Increased buffer from 0.5f to 1.0f
+                if (Vector3Distance(position, closestPointOnSegment) < (rWidth / 2.0f) + 2.5f) { // Increased buffer to prevent road blockage
                     return true; // Position is on this road segment
                 }
             }
@@ -842,7 +911,8 @@ void InitAnimal(Animal* animal, AnimalType type, Vector3 position) {
             animal->walkingAnim = LoadModelAnimations("animals/walking_horse.glb", &animal->walkingAnimCount);
             animal->idleAnim = LoadModelAnimations("animals/idle_horse.glb", &animal->idleAnimCount);
             animal->scale = 1.0f;
-            animal->speed = 0.015f; // Reduced speed
+            animal->speed = 0.022f; // Increased speed for better exploration
+            animal->maxWanderDistance = 40.0f + GetRandomValue(0, 100) / 10.0f; // Increased wander distance for horses (40-50 units)
             break;
         case ANIMAL_CAT:
             animal->walkingModel = LoadModel("animals/walking_cat.glb");
@@ -866,7 +936,8 @@ void InitAnimal(Animal* animal, AnimalType type, Vector3 position) {
             animal->walkingAnim = LoadModelAnimations("animals/walking_cow.glb", &animal->walkingAnimCount);
             animal->idleAnim = LoadModelAnimations("animals/idle_cow.glb", &animal->idleAnimCount);
             animal->scale = 0.27f;  // Reduced from 1.2f by 10x
-            animal->speed = 0.01f;  // Reduced speed
+            animal->speed = 0.018f;  // Increased speed for better exploration
+            animal->maxWanderDistance = 35.0f + GetRandomValue(0, 100) / 10.0f; // Increased wander distance for cows (35-45 units)
             break;
         case ANIMAL_CHICKEN:
             animal->walkingModel = LoadModel("animals/walking_chicken.glb");
@@ -916,6 +987,8 @@ void InitAnimal(Animal* animal, AnimalType type, Vector3 position) {
 
 // Global flag for collision detection
 bool collisionDetectionEnabled = true; // Default is enabled
+// Global flag for debug visualization
+bool showDebugVisualization = false; // Default is disabled
 
 // Function to update animal position and state
 void UpdateAnimal(Animal* animal, float terrainSize) {
@@ -1073,31 +1146,73 @@ void UpdateAnimal(Animal* animal, float terrainSize) {
         // Original logic for other animals (unchanged from previous state)
         if (animal->moveTimer >= animal->moveInterval) {
             animal->moveTimer = 0.0f;
-            if (GetRandomValue(0, 100) < 70) { 
-                animal->isMoving = true;
-                float distanceFromSpawn = Vector3Distance(animal->position, animal->spawnPosition);
-                if (GetRandomValue(0, 100) < 80 || distanceFromSpawn > animal->maxWanderDistance) {
-                    if (distanceFromSpawn > animal->maxWanderDistance * 0.7f) {
-                        Vector3 toSpawn = Vector3Subtract(animal->spawnPosition, animal->position);
-                        animal->direction = Vector3Normalize(toSpawn);
+            
+            // Enhanced behavior for horses and cows to explore further
+            if (animal->type == ANIMAL_HORSE || animal->type == ANIMAL_COW) {
+                // Horses and cows are more likely to keep moving
+                if (GetRandomValue(0, 100) < 85) {  // Increased probability to move (was 70)
+                    animal->isMoving = true;
+                    float distanceFromSpawn = Vector3Distance(animal->position, animal->spawnPosition);
+                    
+                    // Lower probability of returning to spawn for these animals unless they're really far away
+                    if (GetRandomValue(0, 100) < 50 || distanceFromSpawn > animal->maxWanderDistance) {
+                        if (distanceFromSpawn > animal->maxWanderDistance * 0.9f) {
+                            // Only return to spawn when very close to max distance
+                            Vector3 toSpawn = Vector3Subtract(animal->spawnPosition, animal->position);
+                            animal->direction = Vector3Normalize(toSpawn);
+                        } else {
+                            // Otherwise make smaller turns to create more natural paths
+                            float turnAmount = GetRandomValue(-30, 30) * DEG2RAD;
+                            float currentAngle = atan2f(animal->direction.x, animal->direction.z);
+                            float newAngle = currentAngle + turnAmount;
+                            animal->direction.x = sinf(newAngle);
+                            animal->direction.z = cosf(newAngle);
+                        }
                     } else {
-                        float turnAmount = GetRandomValue(-45, 45) * DEG2RAD;
+                        // Occasional large direction changes for more exploration (up to 180 degrees)
+                        float turnAngle = GetRandomValue(-180, 180) * DEG2RAD;
                         float currentAngle = atan2f(animal->direction.x, animal->direction.z);
-                        float newAngle = currentAngle + turnAmount;
+                        float newAngle = currentAngle + turnAngle;
                         animal->direction.x = sinf(newAngle);
                         animal->direction.z = cosf(newAngle);
                     }
+                    
+                    // Horses and cows move for longer periods
+                    animal->moveInterval = (1.5f + GetRandomValue(0, 25) / 10.0f);
                 } else {
-                    float turnAngle = GetRandomValue(-90, 90) * DEG2RAD;
-                    float currentAngle = atan2f(animal->direction.x, animal->direction.z);
-                    float newAngle = currentAngle + turnAngle;
-                    animal->direction.x = sinf(newAngle);
-                    animal->direction.z = cosf(newAngle);
+                    animal->isMoving = false;
+                    // Shorter resting periods
+                    animal->moveInterval = (1.0f + GetRandomValue(0, 10) / 10.0f);
                 }
             } else {
-                animal->isMoving = false;
+                // Original logic for other animals
+                if (GetRandomValue(0, 100) < 70) { 
+                    animal->isMoving = true;
+                    float distanceFromSpawn = Vector3Distance(animal->position, animal->spawnPosition);
+                    if (GetRandomValue(0, 100) < 80 || distanceFromSpawn > animal->maxWanderDistance) {
+                        if (distanceFromSpawn > animal->maxWanderDistance * 0.7f) {
+                            Vector3 toSpawn = Vector3Subtract(animal->spawnPosition, animal->position);
+                            animal->direction = Vector3Normalize(toSpawn);
+                        } else {
+                            float turnAmount = GetRandomValue(-45, 45) * DEG2RAD;
+                            float currentAngle = atan2f(animal->direction.x, animal->direction.z);
+                            float newAngle = currentAngle + turnAmount;
+                            animal->direction.x = sinf(newAngle);
+                            animal->direction.z = cosf(newAngle);
+                        }
+                    } else {
+                        float turnAngle = GetRandomValue(-90, 90) * DEG2RAD;
+                        float currentAngle = atan2f(animal->direction.x, animal->direction.z);
+                        float newAngle = currentAngle + turnAngle;
+                        animal->direction.x = sinf(newAngle);
+                        animal->direction.z = cosf(newAngle);
+                    }
+                    animal->moveInterval = (animal->isMoving ? 1.0f : 2.0f) + GetRandomValue(0, 20) / 10.0f;
+                } else {
+                    animal->isMoving = false;
+                    animal->moveInterval = (animal->isMoving ? 1.0f : 2.0f) + GetRandomValue(0, 20) / 10.0f;
+                }
             }
-            animal->moveInterval = (animal->isMoving ? 1.0f : 2.0f) + GetRandomValue(0, 20) / 10.0f;
         }
 
         if (animal->isMoving) {
@@ -1401,8 +1516,11 @@ void UpdateCameraCustom(Camera *camera, int mode)
         // Calculate new position
         Vector3 newPosition = Vector3Add(camera->position, translation);
         
-        // Skip collision checks if collision detection is disabled
-        if (!collisionDetectionEnabled) {
+        // Check if player is near bank or on road to bank - disable collision in that area
+        bool nearBankArea = IsNearBankOrOnRoadToBank(newPosition);
+        
+        // Skip collision checks if collision detection is disabled or near bank area
+        if (!collisionDetectionEnabled || nearBankArea) {
             // No collision checks - apply movement directly
             camera->position = newPosition;
             camera->target = Vector3Add(camera->target, translation);
@@ -1463,6 +1581,12 @@ void UpdateCameraCustom(Camera *camera, int mode)
 
 // Function to check if an animal is colliding with a building or tree
 bool IsCollisionWithBuilding(Vector3 position, float radius, int* buildingIndex) {
+    // First check if we're in the bank area or on the road to the bank
+    if (IsNearBankOrOnRoadToBank(position)) {
+        if (buildingIndex != NULL) *buildingIndex = -2; // Special value to indicate bank area
+        return false; // No collision in bank area
+    }
+    
     // First check buildings
     for (int i = 0; i < MAX_BUILDINGS; i++) {
         if (buildings[i].model.meshCount == 0) continue; // Skip uninitialized buildings
@@ -1530,6 +1654,12 @@ bool IsCollisionWithBuilding(Vector3 position, float radius, int* buildingIndex)
 
 // Function to check if the player is colliding with an animal
 bool IsCollisionWithAnimal(Vector3 playerPosition, float playerRadius, int* animalIndex) {
+    // First check if we're in the bank area or on the road to the bank
+    if (IsNearBankOrOnRoadToBank(playerPosition)) {
+        if (animalIndex != NULL) *animalIndex = -1;
+        return false; // No collision in bank area
+    }
+    
     for (int i = 0; i < animalCount; i++) {
         if (!animals[i].active) continue;
         
@@ -1915,6 +2045,49 @@ void SpawnPigsInEnclosure(int count) {
         Vector3 position = GetRandomPigEnclosurePosition();
         SpawnAnimal(ANIMAL_PIG, position, FIXED_TERRAIN_SIZE);
     }
+}
+
+// Function to check if player is on road to the bank or near the bank
+bool IsNearBankOrOnRoadToBank(Vector3 position) {
+    // Check if near the bank
+    Vector3 bankPosition = buildings[2].position;
+    float bankRadius = 15.0f; // Large radius around the bank
+    
+    if (Vector3Distance(position, bankPosition) < bankRadius) {
+        return true; // Near the bank
+    }
+    
+    // Check if on road to bank (second road)
+    if (totalCustomRoadsCount >= 2) {
+        CustomRoad* bankRoad = &allCustomRoads[1]; // Second road (to bank)
+        
+        // Check each segment of this road
+        for (int segmentIndex = 0; segmentIndex < bankRoad->numPoints - 1; segmentIndex++) {
+            Vector3 p1 = bankRoad->points[segmentIndex];
+            Vector3 p2 = bankRoad->points[segmentIndex + 1];
+            
+            // Project position onto the road segment
+            Vector3 segmentVec = Vector3Subtract(p2, p1);
+            Vector3 posVec = Vector3Subtract(position, p1);
+            
+            float segmentLengthSq = Vector3LengthSqr(segmentVec);
+            if (segmentLengthSq == 0.0f) continue; // Avoid division by zero
+            
+            float t = Vector3DotProduct(posVec, segmentVec) / segmentLengthSq;
+            t = Clamp(t, 0.0f, 1.0f); // Ensure projection is on the segment
+            
+            Vector3 closestPoint = Vector3Add(p1, Vector3Scale(segmentVec, t));
+            
+            // Check if player is on or near the road
+            float roadBuffer = roadWidth * 1.5f; // Wider buffer for player movement
+            
+            if (Vector3Distance(position, closestPoint) < roadBuffer) {
+                return true; // On or near the road to bank
+            }
+        }
+    }
+    
+    return false;
 }
 
 int main(void)
@@ -2315,6 +2488,9 @@ int main(void)
         SpawnPlant(PLANT_BUSH_WITH_FLOWERS, pos, scale, rotation);
     }
 
+    // Clear any plants that might be blocking roads
+    ClearPlantsNearRoads(3.0f);
+
     // Initialize the cloud system
     InitClouds(FIXED_TERRAIN_SIZE);
 
@@ -2367,6 +2543,12 @@ int main(void)
         // Spawn 5 pigs in the enclosure when P is pressed
         if (IsKeyPressed(KEY_P)) {
             SpawnPigsInEnclosure(5);
+        }
+
+        // Toggle debug visualization when V is pressed
+        if (IsKeyPressed(KEY_V)) {
+            showDebugVisualization = !showDebugVisualization;
+            TraceLog(LOG_INFO, "Debug visualization: %s", showDebugVisualization ? "ON" : "OFF");
         }
 
         if (isRecordingPath && currentRecordingPointCount < MAX_PATH_POINTS) {
@@ -2448,6 +2630,24 @@ int main(void)
         */
         // --- END DEBUG ---
 
+        // --- DEBUG: Draw Bank Safe Zone (collision-free area) ---
+        if (showDebugVisualization) {
+            BoundingBox bankSafeZone = {
+                (Vector3){ buildings[2].position.x - 15.0f, -0.5f, buildings[2].position.z - 15.0f },
+                (Vector3){ buildings[2].position.x + 15.0f, 0.5f, buildings[2].position.z + 15.0f }
+            };
+            DrawBoundingBox(bankSafeZone, BLUE); // Draw a blue box for the bank safe zone
+            
+            // Draw the road to bank as a series of spheres
+            if (totalCustomRoadsCount >= 2) {
+                CustomRoad* bankRoad = &allCustomRoads[1]; // Second road (to bank)
+                for (int i = 0; i < bankRoad->numPoints; i++) {
+                    DrawSphere(bankRoad->points[i], roadWidth * 0.75f, (Color){ 0, 0, 255, 128 }); // Semi-transparent blue spheres
+                }
+            }
+        }
+        // --- END DEBUG ---
+
         // Draw buildings
         for (int i = 0; i < MAX_BUILDINGS; i++)
         {
@@ -2487,6 +2687,7 @@ int main(void)
         DrawText("- T - Disable collision", 15, 15, 10, BLACK);
         DrawText("- R: Start/Stop Path Recording", 15, 30, 10, BLACK);
         DrawText("- E: Export Path to Console (after stopping recording)", 15, 45, 10, BLACK);
+        DrawText("- V: Toggle Debug Visualization", 15, 60, 10, BLACK);
         
         // Animal controls info
         DrawRectangle(5, 110, 330, 120, Fade(LIGHTGRAY, 0.5f));
