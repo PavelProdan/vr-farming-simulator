@@ -443,6 +443,7 @@ Vector3 GetRandomPlantPosition(float terrainSize) { // terrainSize argument is k
         bool collisionWithBuilding = false;
         for (int i = 0; i < MAX_BUILDINGS; i++) {
             if (buildings[i].model.meshCount == 0) continue; // Skip uninitialized buildings
+            if (i == 5) continue; // Skip chicken coop collision
 
             float exclusionRadiusForPlant;
             const float FENCE_MODEL_SCALE_CONST = 0.2f; // From main()
@@ -2756,6 +2757,9 @@ int main(void)
     SpawnMultipleAnimals(ANIMAL_HORSE, 3, FIXED_TERRAIN_SIZE, camera);
     SpawnMultipleAnimals(ANIMAL_DOG, 2, FIXED_TERRAIN_SIZE, camera);
     SpawnMultipleAnimals(ANIMAL_CAT, 2, FIXED_TERRAIN_SIZE, camera);
+    // Also pre-spawn one chicken and one pig in their specific enclosures
+    SpawnChickensInEnclosure(1);
+    SpawnPigsInEnclosure(1);
     
     // Load building models
     buildings[0].model = LoadModel("buildings/barn.glb");
@@ -2790,6 +2794,13 @@ int main(void)
     buildings[4].position = (Vector3){ -35.0f, 0.1f, 20.0f }; // Positioned near the constructionHouse
     buildings[4].scale = 0.5f; // Adjust scale as needed
     buildings[4].rotationAngle = 108.0f; // Adjust rotation as needed
+
+    // Load Chicken Coop model in chicken enclosure
+    buildings[5].model = LoadModel("buildings/ChickenCoop.glb");
+    if (buildings[5].model.meshCount == 0) TraceLog(LOG_ERROR, "Failed to load buildings/ChickenCoop.glb");
+    buildings[5].position = ENCLOSURE_CENTER_2; // Center of chicken enclosure
+    buildings[5].scale = 1.0f; // Adjust scale as needed
+    buildings[5].rotationAngle = 0.0f;
 
     // Orient camera to look at the farmhouse initially
     Vector3 farmhouseLookAtPosition = buildings[4].position;
@@ -2869,7 +2880,7 @@ int main(void)
         ENCLOSURE_CENTER.z - (ENCLOSURE_LENGTH / 2.0f)
     };
 
-    int fenceIndex = 5; // Start after existing buildings
+    int fenceIndex = 6; // Start after existing buildings (including chicken coop)
 
     // Load fence model
     Model fenceModel = LoadModel("buildings/Fence.glb");
@@ -4331,6 +4342,8 @@ bool IsCollisionWithBuilding(Vector3 position, float radius, int* buildingIndex)
             buildingRadius = 3.0f;  
         } else if (i == 4) { // FarmHouse.glb (index 4)
             buildingRadius = 2.0f;  
+        }else if (i == 5) { // FarmHouse.glb (index 4)
+            buildingRadius = 0.0f;  
         } else { 
             const float FENCE_MODEL_SCALE_CONST = 0.2f; 
             if (buildings[i].scale == FENCE_MODEL_SCALE_CONST) { // Likely a fence
