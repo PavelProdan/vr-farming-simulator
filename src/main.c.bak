@@ -155,16 +155,7 @@ bool showCowInteractionPrompt = false;
 
 // --- Interaction & Menu Helper Functions ---
 bool IsNearBuilding(Vector3 playerPos, Vector3 buildingPos, float interactionRadius) {
-    // Use squared distance for better performance - avoid square root
-    float distSq = Vector3DistanceSqr(playerPos, buildingPos);
-    bool isNear = distSq < (interactionRadius * interactionRadius);
-    
-    if (isNear) {
-        TraceLog(LOG_INFO, "Player is near building at (%.2f, %.2f, %.2f). Distance: %.2f, Radius: %.2f", 
-                 buildingPos.x, buildingPos.y, buildingPos.z, sqrtf(distSq), interactionRadius);
-    }
-    
-    return isNear;
+    return Vector3DistanceSqr(playerPos, buildingPos) < interactionRadius * interactionRadius;
 }
 
 void AddToInventory(InventoryItemType itemType, int quantity) {
@@ -609,8 +600,9 @@ bool IsPositionOnRoad(Vector3 position, float rWidth) {
                 Vector3 closestPointOnSegment = Vector3Add(p1, Vector3Scale(segmentVec, t));
                 
                 // Check distance from the plant's position to the closest point on the segment's centerline
-                if (Vector3Distance(position, closestPointOnSegment) < (rWidth / 2.0f) + 2.5f) // Increased buffer to prevent road blockage
+                if (Vector3Distance(position, closestPointOnSegment) < (rWidth / 2.0f) + 2.5f) { // Increased buffer to prevent road blockage
                     return true; // Position is on this road segment
+                }
             }
         }
     }
@@ -1046,7 +1038,7 @@ void GenerateSmoothRoad(CustomRoad* road, float rWidth, Texture2D rTexture) {
     road->segmentCount = 1;
     road->isActive = true;
     
-    TraceLog(LOG_INFO, "Smooth road created successfully for '%s' with %d points", 
+    TraceLog(LOG_INFO, "Single-mesh road generated successfully for road '%s' with %d points.", 
              road->name, road->numPoints);
 }
 
@@ -1642,7 +1634,6 @@ void UpdateTerrainChunks(Vector3 playerPosition, Texture2D terrainTexture) {
     if (playerPosition.x < -boundary) playerPosition.x = -boundary;
     if (playerPosition.x > boundary) playerPosition.x = boundary;
     if (playerPosition.z < -boundary) playerPosition.z = -boundary;
-    if (playerPosition.z > boundary) playerPosition.z = boundary;
 }
 
 // Function to draw terrain chunks with fog effect
@@ -2660,17 +2651,10 @@ int main(void)
     }
     
     // Load inventory item textures
-    inventoryItemTextures[ITEM_FOOD] = LoadTexture("inventory/food.png");
-    inventoryItemTextures[ITEM_EGG] = LoadTexture("inventory/egg.png");
-    inventoryItemTextures[ITEM_MILK] = LoadTexture("inventory/milk.png");
-    inventoryItemTextures[ITEM_STEAK] = LoadTexture("inventory/steak.png");
-    
-    // Log loading of textures
-    TraceLog(LOG_INFO, "Loading inventory textures:");
-    TraceLog(LOG_INFO, "- Food texture ID: %d", inventoryItemTextures[ITEM_FOOD].id);
-    TraceLog(LOG_INFO, "- Egg texture ID: %d", inventoryItemTextures[ITEM_EGG].id);
-    TraceLog(LOG_INFO, "- Milk texture ID: %d", inventoryItemTextures[ITEM_MILK].id);
-    TraceLog(LOG_INFO, "- Steak texture ID: %d", inventoryItemTextures[ITEM_STEAK].id);
+    inventoryItemTextures[ITEM_FOOD] = LoadTexture("textures/food.png");
+    inventoryItemTextures[ITEM_EGG] = LoadTexture("textures/egg.png");
+    inventoryItemTextures[ITEM_MILK] = LoadTexture("textures/milk.png");
+    inventoryItemTextures[ITEM_STEAK] = LoadTexture("textures/steak.png");
     
     // Check if textures loaded successfully
     for (int i = 0; i < ITEM_TYPE_COUNT; i++) {
@@ -3256,51 +3240,45 @@ int main(void)
 
             if (currentMenu == MENU_NONE) {
                 if (nearBarn) {
+                    // DrawText("[F] Interact with Barn", screenWidth / 2 - MeasureText("[F] Interact with Barn", 20) / 2, screenHeight - 120, 20, WHITE); // Moved
                     showBarnPrompt = true;
                     if (interactionKeyPressed) {
                         currentMenu = MENU_BARN;
                         menuSelectedItem = 0;
-                        TraceLog(LOG_INFO, "Player pressed F near barn - opening barn menu");
+                        TraceLog(LOG_INFO, "Barn menu opened.");
                     }
                 } else if (nearBank) {
+                    // DrawText("[F] Interact with Bank", screenWidth / 2 - MeasureText("[F] Interact with Bank", 20) / 2, screenHeight - 120, 20, WHITE); // Moved
                     showBankPrompt = true;
                     if (interactionKeyPressed) {
                         currentMenu = MENU_BANK;
                         menuSelectedItem = 0;
-                        TraceLog(LOG_INFO, "Player pressed F near bank - opening bank menu");
+                        TraceLog(LOG_INFO, "Bank menu opened.");
                     }
                 } else {
                     // Check for animal interaction (feeding/collection) only if no building menu is prompted
                     // Feeding Chickens
-                    if (animalCountByType[ANIMAL_CHICKEN] > 0 && IsNearBuilding(playerPos, ENCLOSURE_CENTER_2, 15.0f)) { // Chicken enclosure - larger radius
+                    if (animalCountByType[ANIMAL_CHICKEN] > 0 && IsNearBuilding(playerPos, ENCLOSURE_CENTER_2, 8.0f)) { // Chicken enclosure
+                        // DrawText("[F] Interact with Chickens", screenWidth / 2 - MeasureText("[F] Interact with Chickens", 20) / 2, screenHeight - 120, 20, WHITE); // Moved
                         showChickenInteractionPrompt = true;
-                        TraceLog(LOG_INFO, "Player is near chicken enclosure");
-                        
                         if (interactionKeyPressed) {
-                            // Show the appropriate menu based on player's inventory and animal status
                             if (playerInventory.type == ITEM_FOOD && playerInventory.quantity > 0 && animalStats[ANIMAL_CHICKEN].hunger < 100.0f) {
                                 currentMenu = MENU_FEED_CHICKENS;
-                                TraceLog(LOG_INFO, "Opening chicken feeding menu");
                             } else if (playerInventory.type == ITEM_NONE && animalStats[ANIMAL_CHICKEN].productReady) {
                                 currentMenu = MENU_COLLECT_CHICKENS;
-                                TraceLog(LOG_INFO, "Opening chicken collecting menu");
                             }
                             menuSelectedItem = 0;
                         }
                     }
                     // Feeding Pigs
-                    else if (animalCountByType[ANIMAL_PIG] > 0 && IsNearBuilding(playerPos, ENCLOSURE_CENTER_1, 15.0f)) { // Pig enclosure - larger radius
+                    else if (animalCountByType[ANIMAL_PIG] > 0 && IsNearBuilding(playerPos, ENCLOSURE_CENTER_1, 8.0f)) { // Pig enclosure
+                        // DrawText("[F] Interact with Pigs", screenWidth / 2 - MeasureText("[F] Interact with Pigs", 20) / 2, screenHeight - 120, 20, WHITE); // Moved
                         showPigInteractionPrompt = true;
-                        TraceLog(LOG_INFO, "Player is near pig enclosure");
-                        
                         if (interactionKeyPressed) {
-                            // Show the appropriate menu based on player's inventory and animal status
                             if (playerInventory.type == ITEM_FOOD && playerInventory.quantity > 0 && animalStats[ANIMAL_PIG].hunger < 100.0f) {
                                 currentMenu = MENU_FEED_PIGS;
-                                TraceLog(LOG_INFO, "Opening pig feeding menu");
                             } else if (playerInventory.type == ITEM_NONE && animalStats[ANIMAL_PIG].productReady) {
                                 currentMenu = MENU_COLLECT_PIGS;
-                                TraceLog(LOG_INFO, "Opening pig collecting menu");
                             }
                             menuSelectedItem = 0;
                         }
@@ -3308,28 +3286,22 @@ int main(void)
                     // Feeding/Collecting Cows (near any cow)
                     else if (animalCountByType[ANIMAL_COW] > 0) {
                         bool nearAnyCow = false;
-                        Vector3 nearCowPosition;
                         for (int i = 0; i < animalCount; i++) {
                             if (animals[i].active && animals[i].type == ANIMAL_COW) {
-                                if (IsNearBuilding(playerPos, animals[i].position, 10.0f)) { // Larger radius
+                                if (IsNearBuilding(playerPos, animals[i].position, 5.0f)) {
                                     nearAnyCow = true;
-                                    nearCowPosition = animals[i].position;
                                     break;
                                 }
                             }
                         }
                         if (nearAnyCow) {
+                            // DrawText("[F] Interact with Cows", screenWidth / 2 - MeasureText("[F] Interact with Cows", 20) / 2, screenHeight - 120, 20, WHITE); // Moved
                             showCowInteractionPrompt = true;
-                            TraceLog(LOG_INFO, "Player is near cow");
-                            
                             if (interactionKeyPressed) {
-                                // Show the appropriate menu based on player's inventory and animal status
                                 if (playerInventory.type == ITEM_FOOD && playerInventory.quantity > 0 && animalStats[ANIMAL_COW].hunger < 100.0f) {
                                     currentMenu = MENU_FEED_COWS;
-                                    TraceLog(LOG_INFO, "Opening cow feeding menu");
                                 } else if (playerInventory.type == ITEM_NONE && animalStats[ANIMAL_COW].productReady) {
                                     currentMenu = MENU_COLLECT_COWS;
-                                    TraceLog(LOG_INFO, "Opening cow collecting menu");
                                 }
                                 menuSelectedItem = 0;
                             }
@@ -3423,7 +3395,7 @@ int main(void)
 
         // TEST: Draw a simple red square at top-left to see if any 2D drawing works after start menu closes
         if (!(human.active && human.state == HUMAN_STATE_IDLE_AT_INTERSECTION)) {
-            // DrawRectangle(0, 0, 100, 100, RED); // Test red square
+            DrawRectangle(0, 0, 100, 100, RED); // Test red square
             TraceLog(LOG_INFO, "TEST: Drawing RED square because human start menu is NOT active.");
         } else {
             TraceLog(LOG_INFO, "TEST: NOT drawing RED square because human start menu IS active.");
@@ -3438,110 +3410,76 @@ int main(void)
 
 
         // Draw info boxes
-        // DrawRectangle(5, 5, 330, 100, Fade(SKYBLUE, 0.5f));
-        // DrawRectangleLines(5, 5, 330, 100, BLUE);
+        DrawRectangle(5, 5, 330, 100, Fade(SKYBLUE, 0.5f));
+        DrawRectangleLines(5, 5, 330, 100, BLUE);
 
-        // DrawText("- T - Disable collision", 15, 15, 10, BLACK);
-        // DrawText("- R: Start/Stop Path Recording", 15, 30, 10, BLACK);
-        // DrawText("- E: Export Path to Console (after stopping recording)", 15, 45, 10, BLACK);
-        // DrawText("- V: Toggle Debug Visualization", 15, 60, 10, BLACK);
+        DrawText("- T - Disable collision", 15, 15, 10, BLACK);
+        DrawText("- R: Start/Stop Path Recording", 15, 30, 10, BLACK);
+        DrawText("- E: Export Path to Console (after stopping recording)", 15, 45, 10, BLACK);
+        DrawText("- V: Toggle Debug Visualization", 15, 60, 10, BLACK);
         
         // Animal controls info
-        // DrawRectangle(5, 110, 330, 120, Fade(LIGHTGRAY, 0.5f));
-        // DrawRectangleLines(5, 110, 330, 120, GRAY);
+        DrawRectangle(5, 110, 330, 120, Fade(LIGHTGRAY, 0.5f));
+        DrawRectangleLines(5, 110, 330, 120, GRAY);
         
-        // DrawText("Animal Controls:", 15, 120, 10, BLACK);
-        // DrawText("- Press H: Spawn horses", 15, 135, 10, BLACK);
-        // DrawText("- Press C: Spawn cats", 15, 150, 10, BLACK);
-        // DrawText("- Press G: Spawn dogs", 15, 165, 10, BLACK);
-        // DrawText("- Press O: Spawn cows", 15, 180, 10, BLACK);
-        // DrawText("- Press K: Spawn chickens", 15, 195, 10, BLACK);
-        // DrawText("- Press P: Spawn pigs", 15, 210, 10, BLACK);
-        // DrawText("- DELETE: Clear all animals", 15, 225, 10, BLACK);
+        DrawText("Animal Controls:", 15, 120, 10, BLACK);
+        DrawText("- Press H: Spawn horses", 15, 135, 10, BLACK);
+        DrawText("- Press C: Spawn cats", 15, 150, 10, BLACK);
+        DrawText("- Press G: Spawn dogs", 15, 165, 10, BLACK);
+        DrawText("- Press O: Spawn cows", 15, 180, 10, BLACK);
+        DrawText("- Press K: Spawn chickens", 15, 195, 10, BLACK);
+        DrawText("- Press P: Spawn pigs", 15, 210, 10, BLACK);
+        DrawText("- DELETE: Clear all animals", 15, 225, 10, BLACK);
         
         // Camera status info
-        // DrawRectangle(600, 5, 195, 100, Fade(SKYBLUE, 0.5f));
-        // DrawRectangleLines(600, 5, 195, 100, BLUE);
+        DrawRectangle(600, 5, 195, 100, Fade(SKYBLUE, 0.5f));
+        DrawRectangleLines(600, 5, 195, 100, BLUE);
 
-        // DrawText("Camera status:", 610, 15, 10, BLACK);
-        // DrawText(TextFormat("- Mode: %s", (cameraMode == CAMERA_FREE) ? "FREE" : (cameraMode == CAMERA_FIRST_PERSON) ? "FIRST_PERSON"
-        //                                                                      : (cameraMode == CAMERA_THIRD_PERSON)   ? "THIRD_PERSON"
-        //                                                                      : (cameraMode == CAMERA_ORBITAL)        ? "ORBITAL"
-        //                                                                                                              : "CUSTOM"),
-        //          610, 30, 10, BLACK);
-        // DrawText(TextFormat("- Projection: %s", (camera.projection == CAMERA_PERSPECTIVE) ? "PERSPECTIVE" : (camera.projection == CAMERA_ORTHOGRAPHIC) ? "ORTHOGRAPHIC"
-        //                                                                                                                                                : "CUSTOM"),
-        //          610, 45, 10, BLACK);
-        // DrawText(TextFormat("- Position: (%06.3f, %06.3f, %06.3f)", camera.position.x, camera.position.y, camera.position.z), 610, 60, 10, BLACK);
-        // DrawText(TextFormat("- Target: (%06.3f, %06.3f, %06.3f)", camera.target.x, camera.target.y, camera.target.z), 610, 75, 10, BLACK);
-        // DrawText(TextFormat("- Up: (%06.3f, %06.3f, %06.3f)", camera.up.x, camera.up.y, camera.up.z), 610, 90, 10, BLACK);
+        DrawText("Camera status:", 610, 15, 10, BLACK);
+        DrawText(TextFormat("- Mode: %s", (cameraMode == CAMERA_FREE) ? "FREE" : (cameraMode == CAMERA_FIRST_PERSON) ? "FIRST_PERSON"
+                                                                             : (cameraMode == CAMERA_THIRD_PERSON)   ? "THIRD_PERSON"
+                                                                             : (cameraMode == CAMERA_ORBITAL)        ? "ORBITAL"
+                                                                                                                     : "CUSTOM"),
+                 610, 30, 10, BLACK);
+        DrawText(TextFormat("- Projection: %s", (camera.projection == CAMERA_PERSPECTIVE) ? "PERSPECTIVE" : (camera.projection == CAMERA_ORTHOGRAPHIC) ? "ORTHOGRAPHIC"
+                                                                                                                                                       : "CUSTOM"),
+                 610, 45, 10, BLACK);
+        DrawText(TextFormat("- Position: (%06.3f, %06.3f, %06.3f)", camera.position.x, camera.position.y, camera.position.z), 610, 60, 10, BLACK);
+        DrawText(TextFormat("- Target: (%06.3f, %06.3f, %06.3f)", camera.target.x, camera.target.y, camera.target.z), 610, 75, 10, BLACK);
+        DrawText(TextFormat("- Up: (%06.3f, %06.3f, %06.3f)", camera.up.x, camera.up.y, camera.up.z), 610, 90, 10, BLACK);
 
         // Animal count display
-        // DrawRectangle(600, 110, 195,  100, Fade(LIGHTGREEN, 0.5f));
-        // DrawRectangleLines(600, 110, 195, 100, GREEN);
-        // 
-        // DrawText("Animal Count:", 610, 120, 10, BLACK);
-        // DrawText(TextFormat("Total: %d/%d", animalCount, MAX_ANIMALS), 610, 135, 10, BLACK);
-        // DrawText(TextFormat("Horses: %d", animalCountByType[ANIMAL_HORSE]), 610, 150, 10, BLACK);
-        // DrawText(TextFormat("Cats: %d", animalCountByType[ANIMAL_CAT]), 610, 165, 10, BLACK);
-        // DrawText(TextFormat("Dogs: %d", animalCountByType[ANIMAL_DOG]), 610, 180,  10, BLACK);
-        // DrawText(TextFormat("Others: %d", animalCountByType[ANIMAL_COW] + animalCountByType[ANIMAL_CHICKEN] + animalCountByType[ANIMAL_PIG]), 610, 195, 10, BLACK);
+        DrawRectangle(600, 110, 195,  100, Fade(LIGHTGREEN, 0.5f));
+        DrawRectangleLines(600, 110, 195, 100, GREEN);
+        
+        DrawText("Animal Count:", 610, 120, 10, BLACK);
+        DrawText(TextFormat("Total: %d/%d", animalCount, MAX_ANIMALS), 610, 135, 10, BLACK);
+        DrawText(TextFormat("Horses: %d", animalCountByType[ANIMAL_HORSE]), 610, 150, 10, BLACK);
+        DrawText(TextFormat("Cats: %d", animalCountByType[ANIMAL_CAT]), 610, 165, 10, BLACK);
+        DrawText(TextFormat("Dogs: %d", animalCountByType[ANIMAL_DOG]), 610, 180,  10, BLACK);
+        DrawText(TextFormat("Others: %d", animalCountByType[ANIMAL_COW] + animalCountByType[ANIMAL_CHICKEN] + animalCountByType[ANIMAL_PIG]), 610, 195, 10, BLACK);
 
-        // --- Draw Player Inventory (Top Middle) ---
-        int invDisplayWidth = 250; // Increased width to accommodate 200px image + text
-        int invDisplayHeight = 280; // Increased height for image and text below
-        int invDisplayX = screenWidth/2 - invDisplayWidth/2;
-        int invDisplayY = 20; // 20px from top
+        // --- Draw Player Inventory (Bottom Middle) ---
+        int invBoxWidth = 200;
+        int invBoxHeight = 80;
+        int invBoxX = screenWidth/2 - invBoxWidth/2;
+        int invBoxY = screenHeight - invBoxHeight - 10; // 10px from bottom
 
-        // Draw a background for the inventory display (optional, but good for visibility)
-        DrawRectangle(invDisplayX, invDisplayY, invDisplayWidth, invDisplayHeight, Fade(DARKGRAY, 0.8f));
-        DrawRectangleLines(invDisplayX, invDisplayY, invDisplayWidth, invDisplayHeight, LIGHTGRAY);
+        TraceLog(LOG_INFO, "Drawing Inventory: X=%d, Y=%d, W=%d, H=%d. human.active=%d, human.state=%d", invBoxX, invBoxY, invBoxWidth, invBoxHeight, human.active, human.state);
 
-        // Title for the inventory
-        const char* invTitle = "Player Inventory";
-        int invTitleFontSize = 24;
-        DrawText(invTitle, invDisplayX + invDisplayWidth/2 - MeasureText(invTitle, invTitleFontSize)/2, invDisplayY + 10, invTitleFontSize, WHITE);
+        DrawRectangle(invBoxX, invBoxY, invBoxWidth, invBoxHeight, Fade(DARKGRAY, 0.7f));
+        DrawRectangleLines(invBoxX, invBoxY, invBoxWidth, invBoxHeight, LIGHTGRAY);
+        DrawText("Inventory", invBoxX + invBoxWidth/2 - MeasureText("Inventory", 20)/2, invBoxY + 5, 20, WHITE);
 
         if (playerInventory.type != ITEM_NONE && playerInventory.quantity > 0) {
-            Texture2D itemTex = inventoryItemTextures[playerInventory.type];
-            if (itemTex.id > 0) {
-                // Display item image (200x200)
-                float imageSize = 200.0f;
-                float imageX = invDisplayX + (invDisplayWidth - imageSize) / 2; // Center image horizontally
-                float imageY = invDisplayY + invTitleFontSize + 20; // Position image below title
-
-                DrawTexturePro(itemTex,
-                               (Rectangle){0, 0, (float)itemTex.width, (float)itemTex.height}, // Source rectangle
-                               (Rectangle){imageX, imageY, imageSize, imageSize}, // Destination rectangle (200x200)
-                               (Vector2){0,0}, // Origin
-                               0.0f, // Rotation
-                               WHITE);
-
-                // Display item name and quantity below the image
-                int textFontSize = 22;
-                const char* itemText = TextFormat("%s: %d", inventoryItemNames[playerInventory.type], playerInventory.quantity);
-                int textWidth = MeasureText(itemText, textFontSize);
-                DrawText(itemText,
-                         invDisplayX + (invDisplayWidth - textWidth) / 2, // Center text horizontally
-                         imageY + imageSize + 10, // Position text below image with padding
-                         textFontSize, WHITE);
-            } else {
-                // Fallback if texture is not loaded, just draw text (centered)
-                const char* fallbackText = TextFormat("%s: %d (Icon Missing)", inventoryItemNames[playerInventory.type], playerInventory.quantity);
-                int fallbackFontSize = 20;
-                int fallbackTextWidth = MeasureText(fallbackText, fallbackFontSize);
-                DrawText(fallbackText,
-                         invDisplayX + (invDisplayWidth - fallbackTextWidth)/2,
-                         invDisplayY + invDisplayHeight/2 - fallbackFontSize/2, // Centered in the box
-                         fallbackFontSize, YELLOW);
+            // Draw item icon
+            if (inventoryItemTextures[playerInventory.type].id > 0) {
+                DrawTextureEx(inventoryItemTextures[playerInventory.type], (Vector2){(float)invBoxX + 10, (float)invBoxY + 30}, 0.0f, 0.5f, WHITE); // Adjust scale as needed
             }
+            // Draw item name and quantity
+            DrawText(TextFormat("%s: %d", inventoryItemNames[playerInventory.type], playerInventory.quantity), invBoxX + 60, invBoxY + 40, 20, WHITE);
         } else {
-            const char* emptyText = "Inventory Empty";
-            int emptyFontSize = 22;
-            DrawText(emptyText, 
-                     invDisplayX + invDisplayWidth/2 - MeasureText(emptyText, emptyFontSize)/2, 
-                     invDisplayY + invDisplayHeight/2 - emptyFontSize/2, // Centered in the box
-                     emptyFontSize, LIGHTGRAY);
+            DrawText("Empty", invBoxX + invBoxWidth/2 - MeasureText("Empty", 20)/2, invBoxY + 40, 20, LIGHTGRAY);
         }
 
         // --- Draw Animal HUD (Top Right) ---
@@ -3577,13 +3515,13 @@ int main(void)
         }
         
         // --- Draw Barn Storage info (Top Left) ---
-        // DrawRectangle(5, 235, 220, 130, Fade(BROWN, 0.7f));
-        // DrawRectangleLines(5, 235, 220, 130, DARKBROWN);
-        // DrawText("Barn Storage", 15, 245, 20, WHITE);
-        // DrawText(TextFormat("Food: %d", barnStorage.food), 15, 275, 15, WHITE);
-        // DrawText(TextFormat("Eggs: %d", barnStorage.eggs), 15, 295, 15, WHITE);
-        // DrawText(TextFormat("Milk: %d", barnStorage.milk), 15, 315, 15, WHITE);
-        // DrawText(TextFormat("Steak: %d", barnStorage.steak), 15, 335, 15, WHITE);
+        DrawRectangle(5, 235, 220, 130, Fade(BROWN, 0.7f));
+        DrawRectangleLines(5, 235, 220, 130, DARKBROWN);
+        DrawText("Barn Storage", 15, 245, 20, WHITE);
+        DrawText(TextFormat("Food: %d", barnStorage.food), 15, 275, 15, WHITE);
+        DrawText(TextFormat("Eggs: %d", barnStorage.eggs), 15, 295, 15, WHITE);
+        DrawText(TextFormat("Milk: %d", barnStorage.milk), 15, 315, 15, WHITE);
+        DrawText(TextFormat("Steak: %d", barnStorage.steak), 15, 335, 15, WHITE);
         
         // --- Draw Player Coins (Next to Animal HUD) ---
         int coinsBoxX = hudBoxX - 120; // Position to the left of Animal HUD
@@ -3616,85 +3554,27 @@ int main(void)
 
         // --- Draw Interaction Menus (Barn/Bank) ---
         if (currentMenu == MENU_BARN) {
-            // First clear the screen and draw a full screen black background
-            ClearBackground(BLACK);
-            
-            // Draw title in the center top portion
-            int titleFontSize = 50;
-            DrawText("BARN OPERATIONS", screenWidth/2 - MeasureText("BARN OPERATIONS", titleFontSize)/2, 80, titleFontSize, WHITE);
-            
-            // Draw an underline below the title
-            DrawRectangle(screenWidth/2 - 200, 140, 400, 5, WHITE);
+            int menuWidth = 400;
+            int menuHeight = 300;
+            int menuX = screenWidth/2 - menuWidth/2;
+            int menuY = screenHeight/2 - menuHeight/2;
+            DrawRectangle(menuX, menuY, menuWidth, menuHeight, Fade(BLACK, 0.85f));
+            DrawRectangleLines(menuX, menuY, menuWidth, menuHeight, WHITE);
+            DrawText("Barn Operations", menuX + menuWidth/2 - MeasureText("Barn Operations", 30)/2, menuY + 20, 30, WHITE);
 
-            // Define layout parameters, shifting the barn menu clearly to the right
-            int startX = (screenWidth * 2) / 3; // Position menu starting at ~67% of screen width
-            int startY = 170;
-            int rowSpacing = 40;
-            int fontSize = 25;
-            int optionFontSize = 30;
-            
-            // Draw barn storage info in the center top section
-            DrawText("BARN STORAGE", startX, startY, fontSize, GOLD);
-            startY += rowSpacing;
-            
-            // Draw barn storage items in single left-aligned column
-            DrawText(TextFormat("Food: %d", barnStorage.food), startX, startY, fontSize, WHITE);
-            startY += rowSpacing;
-            DrawText(TextFormat("Eggs: %d", barnStorage.eggs), startX, startY, fontSize, WHITE);
-            startY += rowSpacing;
-            DrawText(TextFormat("Milk: %d", barnStorage.milk), startX, startY, fontSize, WHITE);
-            startY += rowSpacing;
-            DrawText(TextFormat("Steak: %d", barnStorage.steak), startX, startY, fontSize, WHITE);
-            // Player inventory section
-            startY += rowSpacing + 20;
-            DrawText("YOUR INVENTORY", startX, startY, fontSize, GOLD);
-            startY += rowSpacing;
-            
-            if (playerInventory.type != ITEM_NONE && playerInventory.quantity > 0) {
-                DrawText(TextFormat("%s: %d", inventoryItemNames[playerInventory.type], playerInventory.quantity), 
-                         startX, 
-                         startY, fontSize, WHITE);
-            } else {
-                DrawText("Empty", startX, startY, fontSize, WHITE);
-            }
-
-            // Menu options section
-            startY += rowSpacing + 20;
-            // Define barn menu options and count
             const char* barnOptions[] = {
-                "Store Food",
-                "Take Food",
-                "Store Eggs",
-                "Store Milk",
-                "Store Steak",
+                "Store Food (Inventory -> Barn)",
+                "Take Food (Barn -> Inventory)",
+                "Store Eggs (Inventory -> Barn)",
+                "Store Milk (Inventory -> Barn)",
+                "Store Steak (Inventory -> Barn)",
                 "Exit"
             };
             int numBarnOptions = sizeof(barnOptions)/sizeof(barnOptions[0]);
-            DrawText("MENU OPTIONS", startX, startY, fontSize, GOLD);
-            startY += rowSpacing;
-            
-            // Draw options in a vertical list with proper spacing
-            int optionStartY = startY;
-            int optionSpacing = 45;
-            int padding = 15;
-            
-            // Draw each option centered
+
             for (int i = 0; i < numBarnOptions; i++) {
-                // Highlight selected option
-                if (i == menuSelectedItem) {
-                    DrawRectangle(
-                        startX - padding,
-                        optionStartY + i * optionSpacing - padding,
-                        MeasureText(barnOptions[i], optionFontSize) + (padding * 2),
-                        optionFontSize + (padding * 2),
-                        Fade(DARKBLUE, 0.7f)
-                    );
-                }
                 Color textColor = (i == menuSelectedItem) ? YELLOW : WHITE;
-                DrawText(barnOptions[i], 
-                         startX, 
-                         optionStartY + i * optionSpacing, 
-                         optionFontSize, textColor);
+                DrawText(barnOptions[i], menuX + 30, menuY + 80 + i * 30, 20, textColor);
             }
 
             if (IsKeyPressed(KEY_UP)) menuSelectedItem = (menuSelectedItem - 1 + numBarnOptions) % numBarnOptions;
@@ -3757,15 +3637,14 @@ int main(void)
                 }
             }
         } else if (currentMenu == MENU_BANK) {
-            // Clear the screen completely for the bank menu
-            ClearBackground(BLACK);
-            
-            // Draw title in the center top portion
-            int titleFontSize = 60;
-            DrawText("BANK OPERATIONS", screenWidth/2 - MeasureText("BANK OPERATIONS", titleFontSize)/2, 120, titleFontSize, WHITE);
-            
-            // Draw an underline below the title
-            DrawRectangle(screenWidth/2 - 200, 195, 400, 5, WHITE);
+            // Draw the Bank menu
+            int menuWidth = 400;
+            int menuHeight = 320;
+            int menuX = screenWidth/2 - menuWidth/2;
+            int menuY = screenHeight/2 - menuHeight/2;
+            DrawRectangle(menuX, menuY, menuWidth, menuHeight, Fade(BLACK, 0.85f));
+            DrawRectangleLines(menuX, menuY, menuWidth, menuHeight, WHITE);
+            DrawText("Bank Operations", menuX + menuWidth/2 - MeasureText("Bank Operations", 30)/2, menuY + 20, 30, WHITE);
 
             // Bank menu options
             const char* bankOptions[] = {
@@ -3780,37 +3659,19 @@ int main(void)
             };
             int numBankOptions = sizeof(bankOptions)/sizeof(bankOptions[0]);
 
-            // Display current prices in right column
-            int pricesFontSize = 24;
-            int pricesX = screenWidth * 2/3;
-            int pricesY = 200;
-            
-            DrawText("Current Prices:", pricesX, pricesY, 36, GOLD);
-            pricesY += 50;
-            DrawText(TextFormat("Eggs: %.0f coins each", PRICE_EGG_SELL), pricesX, pricesY, pricesFontSize, GOLD);
-            pricesY += 40;
-            DrawText(TextFormat("Milk: %.0f coins each", PRICE_MILK_SELL), pricesX, pricesY, pricesFontSize, GOLD);
-            pricesY += 40;
-            DrawText(TextFormat("Steak: %.0f coins each", PRICE_STEAK_SELL), pricesX, pricesY, pricesFontSize, GOLD);
-            pricesY += 40;
-            DrawText(TextFormat("Food: %.0f coins each", PRICE_FOOD_BUY), pricesX, pricesY, pricesFontSize, GOLD);
-            pricesY += 40;
-            DrawText(TextFormat("Chicken: %.0f coins", PRICE_CHICKEN_BUY), pricesX, pricesY, pricesFontSize, GOLD);
-            pricesY += 40;
-            DrawText(TextFormat("Pig: %.0f coins", PRICE_PIG_BUY), pricesX, pricesY, pricesFontSize, GOLD);
-            pricesY += 40;
-            DrawText(TextFormat("Cow: %.0f coins", PRICE_COW_BUY), pricesX, pricesY, pricesFontSize, GOLD);
+            // Display current prices
+            DrawText("Current Prices:", menuX + 30, menuY + 60, 18, GOLD);
+            DrawText(TextFormat("Eggs: %.0f coins each", PRICE_EGG_SELL), menuX + 200, menuY + 60, 15, GOLD);
+            DrawText(TextFormat("Milk: %.0f coins each", PRICE_MILK_SELL), menuX + 200, menuY + 80, 15, GOLD);
+            DrawText(TextFormat("Steak: %.0f coins each", PRICE_STEAK_SELL), menuX + 200, menuY + 100, 15, GOLD);
+            DrawText(TextFormat("Food: %.0f coins each", PRICE_FOOD_BUY), menuX + 200, menuY + 120, 15, GOLD);
+            DrawText(TextFormat("Chicken: %.0f coins", PRICE_CHICKEN_BUY), menuX + 200, menuY + 140, 15, GOLD);
+            DrawText(TextFormat("Pig: %.0f coins", PRICE_PIG_BUY), menuX + 200, menuY + 160, 15, GOLD);
+            DrawText(TextFormat("Cow: %.0f coins", PRICE_COW_BUY), menuX + 200, menuY + 180, 15, GOLD);
 
-            // Calculate position for centered options menu
-            int optionFontSize = 30;
-            int optionSpacing = 60; // Larger spacing between options
-            int optionsStartY = screenHeight/2 - ((numBankOptions * optionSpacing) / 2);
-            int optionsX = screenWidth/3;
-            
-            // Draw options in left column
             for (int i = 0; i < numBankOptions; i++) {
                 Color textColor = (i == menuSelectedItem) ? YELLOW : WHITE;
-                DrawText(bankOptions[i], optionsX, optionsStartY + i * optionSpacing, optionFontSize, textColor);
+                DrawText(bankOptions[i], menuX + 30, menuY + 80 + i * 30, 20, textColor);
             }
 
             if (IsKeyPressed(KEY_UP)) menuSelectedItem = (menuSelectedItem - 1 + numBankOptions) % numBankOptions;
@@ -3818,6 +3679,160 @@ int main(void)
             if (IsKeyPressed(KEY_ENTER)) { // ENTER to confirm in menu
                 TraceLog(LOG_INFO, "Bank menu option selected: %d", menuSelectedItem);
                 
+                switch (menuSelectedItem) {
+                    case 0: // Sell Eggs
+                        if (barnStorage.eggs > 0) {
+                            float earnings = barnStorage.eggs * PRICE_EGG_SELL;
+                            playerCoins += earnings;
+                            TraceLog(LOG_INFO, "Sold %d eggs for %.0f coins. New balance: %.0f", barnStorage.eggs, earnings, playerCoins);
+                            barnStorage.eggs = 0;
+                        } else {
+                            TraceLog(LOG_WARNING, "No eggs in barn to sell.");
+                        }
+                        break;
+                        
+                    case 1: // Sell Milk
+                        if (barnStorage.milk > 0) {
+                            float earnings = barnStorage.milk * PRICE_MILK_SELL;
+                            playerCoins += earnings;
+                            TraceLog(LOG_INFO, "Sold %d milk for %.0f coins. New balance: %.0f", barnStorage.milk, earnings, playerCoins);
+                            barnStorage.milk = 0;
+                        } else {
+                            TraceLog(LOG_WARNING, "No milk in barn to sell.");
+                        }
+                        break;
+                        
+                    case 2: // Sell Steak
+                        if (barnStorage.steak > 0) {
+                            float earnings = barnStorage.steak * PRICE_STEAK_SELL;
+                            playerCoins += earnings;
+                            TraceLog(LOG_INFO, "Sold %d steak for %.0f coins. New balance: %.0f", barnStorage.steak, earnings, playerCoins);
+                            barnStorage.steak = 0;
+                        } else {
+                            TraceLog(LOG_WARNING, "No steak in barn to sell.");
+                        }
+                        break;
+                        
+                    case 3: // Buy Food
+                        if (playerCoins >= PRICE_FOOD_BUY) {
+                            int amount = 10; // Buy 10 food at a time
+                            float cost = amount * PRICE_FOOD_BUY;
+                            if (playerCoins >= cost) {
+                                playerCoins -= cost;
+                                barnStorage.food += amount;
+                                TraceLog(LOG_INFO, "Bought %d food for %.0f coins. New balance: %.0f", amount, cost, playerCoins);
+                            } else {
+                                TraceLog(LOG_WARNING, "Not enough coins to buy %d food.", amount);
+                            }
+                        } else {
+                            TraceLog(LOG_WARNING, "Not enough coins to buy food.");
+                        }
+                        break;
+                        
+                    case 4: // Buy Chicken
+                        if (playerCoins >= PRICE_CHICKEN_BUY) {
+                            playerCoins -= PRICE_CHICKEN_BUY;
+                            SpawnChickensInEnclosure(1);
+                            TraceLog(LOG_INFO, "Bought 1 chicken for %.0f coins. New balance: %.0f", PRICE_CHICKEN_BUY, playerCoins);
+                        } else {
+                            TraceLog(LOG_WARNING, "Not enough coins to buy a chicken.");
+                        }
+                        break;
+                        
+                    case 5: // Buy Pig
+                        if (playerCoins >= PRICE_PIG_BUY) {
+                            playerCoins -= PRICE_PIG_BUY;
+                            SpawnPigsInEnclosure(1);
+                            TraceLog(LOG_INFO, "Bought 1 pig for %.0f coins. New balance: %.0f", PRICE_PIG_BUY, playerCoins);
+                        } else {
+                            TraceLog(LOG_WARNING, "Not enough coins to buy a pig.");
+                        }
+                        break;
+                        
+                    case 6: // Buy Cow
+                        if (playerCoins >= PRICE_COW_BUY) {
+                            playerCoins -= PRICE_COW_BUY;
+                            // Spawn cow at a reasonable position
+                            Vector3 cowPos = {0.0f, 0.0f, 0.0f};
+                            for (int i = 0; i < MAX_ANIMALS; i++) {
+                                if (animals[i].active && animals[i].type == ANIMAL_COW) {
+                                    // Position new cow near an existing cow
+                                    cowPos = animals[i].position;
+                                    cowPos.x += GetRandomValue(-5, 5);
+                                    cowPos.z += GetRandomValue(-5, 5);
+                                    break;
+                                }
+                            }
+                            // If no existing cows, use a default position
+                            if (cowPos.x == 0.0f && cowPos.z == 0.0f) {
+                                cowPos = (Vector3){ 10.0f, 0.0f, 15.0f };
+                            }
+                            SpawnAnimal(ANIMAL_COW, cowPos, CHUNK_SIZE);
+                            TraceLog(LOG_INFO, "Bought 1 cow for %.0f coins. New balance: %.0f", PRICE_COW_BUY, playerCoins);
+                        } else {
+                            TraceLog(LOG_WARNING, "Not enough coins to buy a cow.");
+                        }
+                        break;
+                        
+                    case 7: // Exit
+                        currentMenu = MENU_NONE;
+                        break;
+                }
+            }
+        }
+            }
+            if (IsKeyPressed(KEY_ESCAPE)) { // Allow ESC to close menu
+                currentMenu = MENU_NONE;
+                TraceLog(LOG_INFO, "Barn menu closed by ESC.");
+            }
+        }
+
+        if (currentMenu == MENU_BANK) {
+            int menuWidth = 450; // Wider for more options
+            int menuHeight = 400;
+            int menuX = screenWidth/2 - menuWidth/2;
+            int menuY = screenHeight/2 - menuHeight/2;
+            DrawRectangle(menuX, menuY, menuWidth, menuHeight, Fade(BLACK, 0.85f));
+            DrawRectangleLines(menuX, menuY, menuWidth, menuHeight, WHITE);
+            DrawText("Bank Services", menuX + menuWidth/2 - MeasureText("Bank Services", 30)/2, menuY + 20, 30, WHITE);
+
+            // Prepare TextFormat strings outside the loop to avoid re-creating them every frame if menu is open
+            char sellEggsText[128];
+            char sellMilkText[128];
+            char sellSteakText[128];
+            char buyFoodText[128];
+            char buyChickenText[128];
+            char buyPigText[128];
+            char buyCowText[128];
+
+            snprintf(sellEggsText, sizeof(sellEggsText), "Sell Eggs (%d in barn) for %.0f coins each", barnStorage.eggs, PRICE_EGG_SELL);
+            snprintf(sellMilkText, sizeof(sellMilkText), "Sell Milk (%d in barn) for %.0f coins each", barnStorage.milk, PRICE_MILK_SELL);
+            snprintf(sellSteakText, sizeof(sellSteakText), "Sell Steak (%d in barn) for %.0f coins each", barnStorage.steak, PRICE_STEAK_SELL);
+            snprintf(buyFoodText, sizeof(buyFoodText), "Buy Food (50x) for %.0f coins", PRICE_FOOD_BUY * 50);
+            snprintf(buyChickenText, sizeof(buyChickenText), "Buy Chicken for %.0f coins", PRICE_CHICKEN_BUY);
+            snprintf(buyPigText, sizeof(buyPigText), "Buy Pig for %.0f coins", PRICE_PIG_BUY);
+            snprintf(buyCowText, sizeof(buyCowText), "Buy Cow for %.0f coins", PRICE_COW_BUY);
+
+            const char* bankOptions[] = {
+                sellEggsText,
+                sellMilkText,
+                sellSteakText,
+                buyFoodText,
+                buyChickenText,
+                buyPigText,
+                buyCowText,
+                "Exit"
+            };
+            int numBankOptions = sizeof(bankOptions)/sizeof(bankOptions[0]);
+
+            for (int i = 0; i < numBankOptions; i++) {
+                Color textColor = (i == menuSelectedItem) ? GOLD : WHITE;
+                DrawText(bankOptions[i], menuX + 30, menuY + 80 + i * 30, 20, textColor);
+            }
+
+            if (IsKeyPressed(KEY_UP)) menuSelectedItem = (menuSelectedItem - 1 + numBankOptions) % numBankOptions;
+            if (IsKeyPressed(KEY_DOWN)) menuSelectedItem = (menuSelectedItem + 1) % numBankOptions;
+            if (IsKeyPressed(KEY_ENTER)) { // F can also confirm
                 switch (menuSelectedItem) {
                     case 0: // Sell Eggs
                         if (barnStorage.eggs > 0) {
@@ -3889,6 +3904,7 @@ int main(void)
                         TraceLog(LOG_INFO, "Exited bank menu.");
                         break;
                 }
+                 if (menuSelectedItem != 7) currentMenu = MENU_NONE; // Close menu after action unless exiting
             }
             if (IsKeyPressed(KEY_ESCAPE)) { // Allow ESC to close menu
                 currentMenu = MENU_NONE;
@@ -3898,63 +3914,26 @@ int main(void)
 
         // --- Draw Animal Interaction Menus (Feeding/Collecting) ---
         if (currentMenu == MENU_FEED_CHICKENS || currentMenu == MENU_FEED_PIGS || currentMenu == MENU_FEED_COWS) {
-            // Draw fullscreen menu - Replace fade with clear background
-            ClearBackground(BLACK);
+            int menuWidth = 350;
+            int menuHeight = 150;
+            int menuX = screenWidth/2 - menuWidth/2;
+            int menuY = screenHeight/2 - menuHeight/2;
+            DrawRectangle(menuX, menuY, menuWidth, menuHeight, Fade(BLACK, 0.85f));
+            DrawRectangleLines(menuX, menuY, menuWidth, menuHeight, WHITE);
             
             AnimalType typeToFeed = (currentMenu == MENU_FEED_CHICKENS) ? ANIMAL_CHICKEN : 
                                     (currentMenu == MENU_FEED_PIGS) ? ANIMAL_PIG : ANIMAL_COW;
             const char* animalName = (typeToFeed == ANIMAL_CHICKEN) ? "Chickens" : (typeToFeed == ANIMAL_PIG) ? "Pigs" : "Cows"; 
 
-            // Draw title in the center top portion
-            int titleFontSize = 50;
-            DrawText(TextFormat("Feed %s", animalName), screenWidth/2 - MeasureText(TextFormat("Feed %s", animalName), titleFontSize)/2, 100, titleFontSize, WHITE);
-            
-            // Draw an underline below the title to match other menus
-            DrawRectangle(screenWidth/2 - 150, 160, 300, 5, WHITE);
-
-            // Show animal stats
-            int statsFontSize = 30;
-            DrawText(TextFormat("Current Hunger: %.0f%%", animalStats[typeToFeed].hunger), 
-                     screenWidth/2 - MeasureText(TextFormat("Current Hunger: %.0f%%", animalStats[typeToFeed].hunger), statsFontSize)/2, 
-                     200, 
-                     statsFontSize, 
-                     animalStats[typeToFeed].hunger < 30 ? RED : WHITE);
-                     
-            int animalTypeCount = animalCountByType[typeToFeed]; 
-            DrawText(TextFormat("Number of %s: %d", animalName, animalTypeCount), 
-                     screenWidth/2 - MeasureText(TextFormat("Number of %s: %d", animalName, animalTypeCount), statsFontSize)/2,
-                     250,
-                     statsFontSize,
-                     WHITE);
+            DrawText(TextFormat("Feed %s", animalName), menuX + menuWidth/2 - MeasureText(TextFormat("Feed %s", animalName), 30)/2, menuY + 20, 30, WHITE);
 
             const char* feedOption = TextFormat("Feed (Cost: %d Food)", animalCountByType[typeToFeed] > 0 ? animalCountByType[typeToFeed] : 1); // Feed 1 food per animal
             const char* options[] = {feedOption, "Cancel"};
             int numOptions = 2;
 
-            // Draw options centered
-            int optionFontSize = 40; // Increased font size
-            int optionSpacing = 70; // Increased spacing
-            int optionsStartY = screenHeight/2;
-            int padding = 20;
-            
             for (int i = 0; i < numOptions; i++) {
-                // If this is the selected item, draw a highlight box
-                if (i == menuSelectedItem) {
-                    DrawRectangle(
-                        screenWidth/2 - MeasureText(options[i], optionFontSize)/2 - padding,
-                        optionsStartY + i * optionSpacing - padding,
-                        MeasureText(options[i], optionFontSize) + (padding * 2),
-                        optionFontSize + (padding * 2),
-                        Fade(DARKBLUE, 0.7f)
-                    );
-                }
-                
                 Color textColor = (i == menuSelectedItem) ? YELLOW : WHITE;
-                DrawText(options[i], 
-                         screenWidth/2 - MeasureText(options[i], optionFontSize)/2, 
-                         optionsStartY + i * optionSpacing, 
-                         optionFontSize, 
-                         textColor);
+                DrawText(options[i], menuX + 30, menuY + 70 + i * 30, 20, textColor);
             }
 
             if (IsKeyPressed(KEY_UP)) menuSelectedItem = (menuSelectedItem - 1 + numOptions) % numOptions;
@@ -3977,15 +3956,18 @@ int main(void)
         }
 
         if (currentMenu == MENU_COLLECT_CHICKENS || currentMenu == MENU_COLLECT_PIGS || currentMenu == MENU_COLLECT_COWS) {
-            // Draw fullscreen menu - Replace fade with clear background
-            ClearBackground(BLACK);
+            int menuWidth = 350;
+            int menuHeight = 150;
+            int menuX = screenWidth/2 - menuWidth/2;
+            int menuY = screenHeight/2 - menuHeight/2;
+            DrawRectangle(menuX, menuY, menuWidth, menuHeight, Fade(BLACK, 0.85f));
+            DrawRectangleLines(menuX, menuY, menuWidth, menuHeight, WHITE);
 
             AnimalType typeToCollect = (currentMenu == MENU_COLLECT_CHICKENS) ? ANIMAL_CHICKEN :
                                        (currentMenu == MENU_COLLECT_PIGS) ? ANIMAL_PIG : ANIMAL_COW;
             InventoryItemType itemToCollect = (typeToCollect == ANIMAL_CHICKEN) ? ITEM_EGG :
                                               (typeToCollect == ANIMAL_PIG) ? ITEM_STEAK : ITEM_MILK;
             const char* productName = inventoryItemNames[itemToCollect];
-            const char* animalName = (typeToCollect == ANIMAL_CHICKEN) ? "Chickens" : (typeToCollect == ANIMAL_PIG) ? "Pigs" : "Cows";
             int numProducts = animalCountByType[typeToCollect];
             
             // Calculate number of products based on animal count and product type
@@ -3997,43 +3979,15 @@ int main(void)
                 numProducts = animalCountByType[ANIMAL_COW]; // 1 milk per cow
             }
 
-            // Draw title in the center top portion
-            int titleFontSize = 50;
-            DrawText(TextFormat("Collect %s", productName), screenWidth/2 - MeasureText(TextFormat("Collect %s", productName), titleFontSize)/2, 100, titleFontSize, WHITE);
-            
-            // Draw an underline below the title to match other menus
-            DrawRectangle(screenWidth/2 - 150, 160, 300, 5, WHITE);
-
-            // Show collection details
-            int detailsFontSize = 30;
-            DrawText(TextFormat("Number of %s: %d", animalName, animalCountByType[typeToCollect]), 
-                     screenWidth/2 - MeasureText(TextFormat("Number of %s: %d", animalName, animalCountByType[typeToCollect]), detailsFontSize)/2, 
-                     200, 
-                     detailsFontSize, 
-                     WHITE);
-                     
-            DrawText(TextFormat("Ready to collect: %d %s", numProducts, productName), 
-                     screenWidth/2 - MeasureText(TextFormat("Ready to collect: %d %s", numProducts, productName), detailsFontSize)/2,
-                     250,
-                     detailsFontSize,
-                     GREEN);
+            DrawText(TextFormat("Collect %s", productName), menuX + menuWidth/2 - MeasureText(TextFormat("Collect %s", productName), 30)/2, menuY + 20, 30, WHITE);
 
             const char* collectOption = TextFormat("Collect %d %s", numProducts, productName);
             const char* options[] = {collectOption, "Cancel"};
             int numOptions = 2;
 
-            // Draw options centered
-            int optionFontSize = 30;
-            int optionSpacing = 60;
-            int optionsStartY = screenHeight/2;
-            
             for (int i = 0; i < numOptions; i++) {
                 Color textColor = (i == menuSelectedItem) ? YELLOW : WHITE;
-                DrawText(options[i], 
-                         screenWidth/2 - MeasureText(options[i], optionFontSize)/2, 
-                         optionsStartY + i * optionSpacing, 
-                         optionFontSize, 
-                         textColor);
+                DrawText(options[i], menuX + 30, menuY + 70 + i * 30, 20, textColor);
             }
 
             if (IsKeyPressed(KEY_UP)) menuSelectedItem = (menuSelectedItem - 1 + numOptions) % numOptions;
