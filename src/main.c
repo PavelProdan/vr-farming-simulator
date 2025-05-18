@@ -34,6 +34,11 @@
 #define ENCLOSURE_WIDTH_2 15.0f
 #define ENCLOSURE_LENGTH_2 12.0f
 
+// Pig enclosure constants (first enclosure)
+#define ENCLOSURE_CENTER_1 (Vector3){ 20.0f, 0.0f, 15.0f }
+#define ENCLOSURE_WIDTH_1 10.0f
+#define ENCLOSURE_LENGTH_1 12.0f
+
 // Define LIGHTGREEN color if it's not defined in raylib
 #ifndef LIGHTGREEN
     #define LIGHTGREEN (Color){ 200, 255, 200, 255 }
@@ -991,7 +996,79 @@ void UpdateAnimal(Animal* animal, float terrainSize) {
             animal->position = newPosition; // Position after bounce/clamp
             animal->rotationAngle = atan2f(animal->direction.x, animal->direction.z) * RAD2DEG;
         }
+    } else if (animal->type == ANIMAL_PIG) {
+        // Pig-specific logic
+        float enclosurePadding = 0.1f; // Consistent padding
 
+        if (animal->moveTimer >= animal->moveInterval) {
+            animal->moveTimer = 0.0f; // Reset timer for next decision
+            animal->isMoving = true;  // Pigs tend to keep moving or turning
+
+            // New direction: Adjust current direction by a random angle (smoother turns)
+            float turnStrength = 40.0f; // Max turn in degrees for wandering
+            float turnAngle = GetRandomValue(-turnStrength, turnStrength) * DEG2RAD;
+            float currentAngleRad = atan2f(animal->direction.x, animal->direction.z);
+            // Ensure there's a default direction if x and z are zero (e.g. at start)
+            if (animal->direction.x == 0.0f && animal->direction.z == 0.0f) {
+                currentAngleRad = GetRandomValue(0,360) * DEG2RAD;
+            }
+            float newAngleRad = currentAngleRad + turnAngle;
+
+            animal->direction.x = sinf(newAngleRad);
+            animal->direction.z = cosf(newAngleRad);
+            animal->direction = Vector3Normalize(animal->direction);
+            
+            // Interval for pigs before random turn
+            animal->moveInterval = 1.8f + GetRandomValue(0, 15)/10.0f; // 1.8 to 3.3 seconds
+        }
+
+        if (animal->isMoving) {
+            Vector3 newPosition = animal->position; // Start with current position
+
+            newPosition.x += animal->direction.x * animal->speed;
+            newPosition.z += animal->direction.z * animal->speed;
+
+            // Enclosure boundaries
+            float minX = ENCLOSURE_CENTER_1.x - (ENCLOSURE_WIDTH_1 / 2.0f);
+            float maxX = ENCLOSURE_CENTER_1.x + (ENCLOSURE_WIDTH_1 / 2.0f);
+            float minZ = ENCLOSURE_CENTER_1.z - (ENCLOSURE_LENGTH_1 / 2.0f);
+            float maxZ = ENCLOSURE_CENTER_1.z + (ENCLOSURE_LENGTH_1 / 2.0f);
+            bool bounced = false;
+
+            // X-axis reflection
+            if (newPosition.x <= minX + enclosurePadding) {
+                newPosition.x = minX + enclosurePadding;
+                animal->direction.x *= -1.0f;
+                animal->direction.z += GetRandomValue(-1, 1) / 20.0f; // Tiny perpendicular nudge
+                bounced = true;
+            } else if (newPosition.x >= maxX - enclosurePadding) {
+                newPosition.x = maxX - enclosurePadding;
+                animal->direction.x *= -1.0f;
+                animal->direction.z += GetRandomValue(-1, 1) / 20.0f;
+                bounced = true;
+            }
+
+            // Z-axis reflection
+            if (newPosition.z <= minZ + enclosurePadding) {
+                newPosition.z = minZ + enclosurePadding;
+                animal->direction.z *= -1.0f;
+                animal->direction.x += GetRandomValue(-1, 1) / 20.0f;
+                bounced = true;
+            } else if (newPosition.z >= maxZ - enclosurePadding) {
+                newPosition.z = maxZ - enclosurePadding;
+                animal->direction.z *= -1.0f;
+                animal->direction.x += GetRandomValue(-1, 1) / 20.0f;
+                bounced = true;
+            }
+
+            if (bounced) {
+                animal->direction = Vector3Normalize(animal->direction);
+                // Force commitment to bounce direction: Reset timer to make it take longer for next RANDOM turn decision
+                animal->moveTimer = animal->moveInterval * 0.3f; // Positive value, spend 70% of interval committed to bounce
+            }
+            animal->position = newPosition; // Position after bounce/clamp
+            animal->rotationAngle = atan2f(animal->direction.x, animal->direction.z) * RAD2DEG;
+        }
     } else {
         // Original logic for other animals (unchanged from previous state)
         if (animal->moveTimer >= animal->moveInterval) {
@@ -1084,6 +1161,19 @@ void UpdateAnimal(Animal* animal, float terrainSize) {
         float maxX = ENCLOSURE_CENTER_2.x + (ENCLOSURE_WIDTH_2 / 2.0f);
         float minZ = ENCLOSURE_CENTER_2.z - (ENCLOSURE_LENGTH_2 / 2.0f);
         float maxZ = ENCLOSURE_CENTER_2.z + (ENCLOSURE_LENGTH_2 / 2.0f);
+        float padding = 0.05f; // Minimal padding
+
+        if (animal->position.x < minX + padding) animal->position.x = minX + padding;
+        if (animal->position.x > maxX - padding) animal->position.x = maxX - padding;
+        if (animal->position.z < minZ + padding) animal->position.z = minZ + padding;
+        if (animal->position.z > maxZ - padding) animal->position.z = maxZ - padding;
+    }
+    // --- FINAL FAILSAFE CLAMP for Pigs (after all other collisions) ---
+    else if (animal->type == ANIMAL_PIG) {
+        float minX = ENCLOSURE_CENTER_1.x - (ENCLOSURE_WIDTH_1 / 2.0f);
+        float maxX = ENCLOSURE_CENTER_1.x + (ENCLOSURE_WIDTH_1 / 2.0f);
+        float minZ = ENCLOSURE_CENTER_1.z - (ENCLOSURE_LENGTH_1 / 2.0f);
+        float maxZ = ENCLOSURE_CENTER_1.z + (ENCLOSURE_LENGTH_1 / 2.0f);
         float padding = 0.05f; // Minimal padding
 
         if (animal->position.x < minX + padding) animal->position.x = minX + padding;
@@ -1789,6 +1879,44 @@ void SpawnChickensInEnclosure(int count) {
     }
 }
 
+// Function to check if a position is inside the pig enclosure
+bool IsPositionInPigEnclosure(Vector3 position) {
+    // Define the boundaries of the pig enclosure (first enclosure)
+    float minX = ENCLOSURE_CENTER_1.x - (ENCLOSURE_WIDTH_1 / 2.0f);
+    float maxX = ENCLOSURE_CENTER_1.x + (ENCLOSURE_WIDTH_1 / 2.0f);
+    float minZ = ENCLOSURE_CENTER_1.z - (ENCLOSURE_LENGTH_1 / 2.0f);
+    float maxZ = ENCLOSURE_CENTER_1.z + (ENCLOSURE_LENGTH_1 / 2.0f);
+
+    // Add a small buffer to keep pigs away from the fence
+    float buffer = 1.0f;
+    return (position.x > minX + buffer && position.x < maxX - buffer &&
+            position.z > minZ + buffer && position.z < maxZ - buffer);
+}
+
+// Function to get a random position inside the pig enclosure
+Vector3 GetRandomPigEnclosurePosition(void) {
+    float minX = ENCLOSURE_CENTER_1.x - (ENCLOSURE_WIDTH_1 / 2.0f);
+    float maxX = ENCLOSURE_CENTER_1.x + (ENCLOSURE_WIDTH_1 / 2.0f);
+    float minZ = ENCLOSURE_CENTER_1.z - (ENCLOSURE_LENGTH_1 / 2.0f);
+    float maxZ = ENCLOSURE_CENTER_1.z + (ENCLOSURE_LENGTH_1 / 2.0f);
+
+    // Add buffer to keep away from fence
+    float buffer = 1.0f;
+    Vector3 position;
+    position.x = GetRandomValue((int)((minX + buffer) * 100), (int)((maxX - buffer) * 100)) / 100.0f;
+    position.z = GetRandomValue((int)((minZ + buffer) * 100), (int)((maxZ - buffer) * 100)) / 100.0f;
+    position.y = 0.0f;
+    return position;
+}
+
+// Function to spawn multiple pigs in the enclosure
+void SpawnPigsInEnclosure(int count) {
+    for (int i = 0; i < count && animalCount < MAX_ANIMALS; i++) {
+        Vector3 position = GetRandomPigEnclosurePosition();
+        SpawnAnimal(ANIMAL_PIG, position, FIXED_TERRAIN_SIZE);
+    }
+}
+
 int main(void)
 {
     // const int screenWidth = 1512;
@@ -1893,8 +2021,8 @@ int main(void)
     buildings[1].model = LoadModel("buildings/horse_barn.glb");
     if (buildings[1].model.meshCount == 0) TraceLog(LOG_ERROR, "Failed to load buildings/horse_barn.glb");
     buildings[1].position = (Vector3){ 10.0f, 0.0f, 10.0f };
-    buildings[1].scale = 0.5f;
-    buildings[1].rotationAngle = 135.0f;
+    buildings[1].scale = 0.75f;
+    buildings[1].rotationAngle = -42.0f;
 
     // Load Bank model
     buildings[2].model = LoadModel("buildings/Bank.glb");
@@ -1919,10 +2047,10 @@ int main(void)
 
     // Create animal enclosure using fences
     const float FENCE_MODEL_SCALE_CONST = 0.2f;
-    const float ENCLOSURE_WIDTH = 5.0f;  // 5 units wide
-    const float ENCLOSURE_LENGTH = 6.0f; // 6 units long
+    const float ENCLOSURE_WIDTH = ENCLOSURE_WIDTH_1;  // Use the defined constant
+    const float ENCLOSURE_LENGTH = ENCLOSURE_LENGTH_1; // Use the defined constant
     const float FENCE_SPACING = 1.0f;    // Space between fence segments
-    const Vector3 ENCLOSURE_CENTER = (Vector3){ 20.0f, 0.0f, 15.0f }; // Center position of enclosure
+    const Vector3 ENCLOSURE_CENTER = ENCLOSURE_CENTER_1; // Use the defined constant
 
     // Calculate starting position (top-left corner)
     Vector3 startPos = {
@@ -2236,6 +2364,11 @@ int main(void)
             SpawnChickensInEnclosure(5);
         }
 
+        // Spawn 5 pigs in the enclosure when P is pressed
+        if (IsKeyPressed(KEY_P)) {
+            SpawnPigsInEnclosure(5);
+        }
+
         if (isRecordingPath && currentRecordingPointCount < MAX_PATH_POINTS) {
             if (currentRecordingPointCount == 0) {
                 // Always record the first point
@@ -2303,6 +2436,15 @@ int main(void)
             (Vector3){ ENCLOSURE_CENTER_2.x + ENCLOSURE_WIDTH_2/2.0f, 0.5f, ENCLOSURE_CENTER_2.z + ENCLOSURE_LENGTH_2/2.0f }
         };
         DrawBoundingBox(enclosureBounds, LIME); // Draw a lime green box for the enclosure
+        */
+        // --- END DEBUG ---
+
+        // --- DEBUG: Draw Pig Enclosure Boundaries ---
+        /*BoundingBox pigEnclosureBounds = {
+            (Vector3){ ENCLOSURE_CENTER_1.x - ENCLOSURE_WIDTH_1/2.0f, -0.5f, ENCLOSURE_CENTER_1.z - ENCLOSURE_LENGTH_1/2.0f },
+            (Vector3){ ENCLOSURE_CENTER_1.x + ENCLOSURE_WIDTH_1/2.0f, 0.5f, ENCLOSURE_CENTER_1.z + ENCLOSURE_LENGTH_1/2.0f }
+        };
+        DrawBoundingBox(pigEnclosureBounds, RED); // Draw a red box for the pig enclosure
         */
         // --- END DEBUG ---
 
