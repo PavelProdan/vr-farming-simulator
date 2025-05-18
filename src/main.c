@@ -1179,6 +1179,8 @@ void InitAnimal(Animal* animal, AnimalType type, Vector3 position) {
 bool collisionDetectionEnabled = true; // Default is enabled
 // Global flag for debug visualization
 bool showDebugVisualization = false; // Default is disabled
+// Flag for whether the FarmHouse has been purchased
+bool purchasedFarmhouse = false;
 
 // Function to update animal position and state
 void UpdateAnimal(Animal* animal, float terrainSize) {
@@ -2757,6 +2759,7 @@ int main(void)
     SpawnMultipleAnimals(ANIMAL_HORSE, 3, FIXED_TERRAIN_SIZE, camera);
     SpawnMultipleAnimals(ANIMAL_DOG, 2, FIXED_TERRAIN_SIZE, camera);
     SpawnMultipleAnimals(ANIMAL_CAT, 2, FIXED_TERRAIN_SIZE, camera);
+    SpawnMultipleAnimals(ANIMAL_COW, 2, FIXED_TERRAIN_SIZE, camera);
     // Also pre-spawn one chicken and one pig in their specific enclosures
     SpawnChickensInEnclosure(1);
     SpawnPigsInEnclosure(1);
@@ -3419,6 +3422,8 @@ int main(void)
         // Draw buildings
         for (int i = 0; i < MAX_BUILDINGS; i++)
         {
+            // Hide FarmHouse until purchased and remove constructionHouse after purchase
+            if ((i == 4 && !purchasedFarmhouse) || (i == 3 && purchasedFarmhouse)) continue;
             if (buildings[i].model.meshCount > 0) { // Check if model is loaded
                 DrawModelEx(buildings[i].model, buildings[i].position, (Vector3){0.0f, 1.0f, 0.0f}, buildings[i].rotationAngle, (Vector3){buildings[i].scale, buildings[i].scale, buildings[i].scale}, WHITE);
             }
@@ -3806,6 +3811,7 @@ int main(void)
                 "Buy Pig",
                 "Buy Cow",
                 "Buy Coins", // debug only
+                "Buy FarmHouse", // Purchase farmhouse for 1000 coins
                 "Exit"
             };
             int numBankOptions = sizeof(bankOptions)/sizeof(bankOptions[0]);
@@ -3830,6 +3836,8 @@ int main(void)
             DrawText(TextFormat("Pig: %.0f coins", PRICE_PIG_BUY), pricesX, pricesY, pricesFontSize, GOLD);
             pricesY += 40;
             DrawText(TextFormat("Cow: %.0f coins", PRICE_COW_BUY), pricesX, pricesY, pricesFontSize, GOLD);
+            pricesY += 40;
+            DrawText("FarmHouse: 1000 coins", pricesX, pricesY, pricesFontSize, GOLD);
 
             // Calculate position for centered options menu, ensuring options don't overlap prices
             int optionFontSize = 30;
@@ -3937,7 +3945,16 @@ int main(void)
                         playerCoins += 1000; // Debug grant coins
                         TraceLog(LOG_INFO, "Debug: Added 1000 coins. Player coins: %.0f", playerCoins);
                         break;
-                    case 9: // Exit
+                    case 9: // Buy FarmHouse
+                        if (playerCoins >= 1000) {
+                            playerCoins -= 1000;
+                            purchasedFarmhouse = true;
+                            TraceLog(LOG_INFO, "Bought FarmHouse. Player coins: %.0f", playerCoins);
+                        } else {
+                            TraceLog(LOG_WARNING, "Not enough coins to buy FarmHouse.");
+                        }
+                        break;
+                    case 10: // Exit
                         currentMenu = MENU_NONE;
                         TraceLog(LOG_INFO, "Exited bank menu.");
                         break;
