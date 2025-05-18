@@ -2222,7 +2222,7 @@ void InitHuman(Human* h) {
     h->targetPosition = (Vector3){ 0.0f, 0.3f, 0.0f };
     h->direction = (Vector3){ 0.0f, 0.0f, 1.0f };  // Default facing forward
     h->speed = 0.05f;  // Significantly reduced speed for slower, more natural movement
-    h->scale = 2.0f;   // Reduced scale from 8.0 to 2.0 for better proportions
+    h->scale = 1.0f;   // Further reduced scale from 2.0 to 1.0 for better proportions
     h->rotationAngle = 0.0f;
     h->state = HUMAN_STATE_WALKING;  // Start in walking state
     h->stateTimer = 0.0f;
@@ -2346,34 +2346,7 @@ void DrawHuman(Human* h, Camera camera) {
     TraceLog(LOG_INFO, "DrawHuman called: active=%d, state=%d, position=(%.2f, %.2f, %.2f)", 
         h->active, h->state, h->position.x, h->position.y, h->position.z);
     
-    // Draw appropriately sized debug markers to help locate where the human should be
-    DrawSphere(h->position, 0.8f, RED);      // Reduced to match smaller character scale
-    DrawCube(h->position, 0.5f, 1.5f, 0.5f, YELLOW);  // Reduced size to be proportional
-    
-    // Draw a vertical line above the character for better visibility from a distance
-    Vector3 lineTop = h->position;
-    lineTop.y += 10.0f;  // Draw a shorter line (10 units high)
-    DrawLine3D(h->position, lineTop, (Color){255, 0, 255, 255}); // Bright magenta line
-    
-    // Draw smaller path points for debugging (always show these)
-    for (int i = 0; i < h->pathPointCount; i++) {
-        DrawSphere(h->pathPoints[i], 0.7f, BLUE);  // Reduced to match smaller character scale
-        if (i < h->pathPointCount - 1) {
-            // Draw line connecting path points
-            DrawLine3D(h->pathPoints[i], h->pathPoints[i+1], GREEN);
-            
-            // Add vertical markers at each path point
-            Vector3 markerTop = h->pathPoints[i];
-            markerTop.y += 5.0f;
-            DrawLine3D(h->pathPoints[i], markerTop, ORANGE);
-        }
-    }
-    
-    // Add a special marker at the destination
-    if (h->pathPointCount > 0) {
-        Vector3 destination = h->pathPoints[h->pathPointCount - 1];
-        DrawCube(destination, 1.0f, 1.0f, 1.0f, (Color){0, 255, 255, 200}); // Cyan cube
-    }
+    // Removed debug markers: sphere, cube, vertical line, path point spheres/lines, destination cube.
     
     if (!h->active) {
         TraceLog(LOG_WARNING, "Skipping human model draw because active=false");
@@ -2387,9 +2360,12 @@ void DrawHuman(Human* h, Camera camera) {
             modelToDraw = h->walkingModel;
             TraceLog(LOG_INFO, "Using walking model for human");
             break;
-        case HUMAN_STATE_TALKING:
-            modelToDraw = h->idleModel;  // Use idle model for talking state
-            TraceLog(LOG_INFO, "Using idle model for human while talking");
+        // HUMAN_STATE_IDLE_AT_INTERSECTION will now use the idle model for its 3D representation
+        // The full-screen menu is handled separately by DrawHumanStartMenu
+        case HUMAN_STATE_IDLE_AT_INTERSECTION: 
+        case HUMAN_STATE_TALKING: // Fallthrough, TALKING might also use idle or looking
+            modelToDraw = h->idleModel;  // Use idle model for idle/talking state
+            TraceLog(LOG_INFO, "Using idle model for human while idle/talking");
             break;
         case HUMAN_STATE_DISAPPEARING:
             modelToDraw = h->idleModel;
@@ -2424,79 +2400,8 @@ void DrawHuman(Human* h, Camera camera) {
               (Vector3){h->scale, h->scale, h->scale},
               tint);
     
-    // Draw the dialog message if needed
-    if (h->showDialog) {
-        TraceLog(LOG_INFO, "Drawing dialog for human: %s", h->dialogMessage);
-        
-        // Get screen position for the dialog
-        Vector3 headPosition = Vector3Add(h->position, (Vector3){0.0f, 3.0f * h->scale, 0.0f});
-        Vector2 screenPos = GetWorldToScreen(headPosition, camera);
-        
-        // Make dialog text larger and more visible
-        int fontSize = 40;
-        int maxWidth = GetScreenWidth() * 0.8;
-        
-        // Calculate text measurements
-        const char* text = h->dialogMessage;
-        int textWidth = MeasureText(text, fontSize);
-        int textHeight = fontSize * 3; // Rough estimate for multiple lines
-        
-        // Limit width and wrap text if needed
-        if (textWidth > maxWidth) {
-            textWidth = maxWidth;
-        }
-        
-        // Ensure dialog stays on screen
-        int boxX = screenPos.x - textWidth/2 - 20;
-        if (boxX < 10) boxX = 10;
-        if (boxX + textWidth + 40 > GetScreenWidth()) 
-            boxX = GetScreenWidth() - textWidth - 40;
-        
-        int boxY = screenPos.y - 60;
-        if (boxY < 10) boxY = 10;
-        
-        // Draw background for the text - make it larger and more visible
-        DrawRectangle(boxX, boxY, textWidth + 40, textHeight + 40, Fade(BLACK, 0.8f));
-        DrawRectangleLines(boxX, boxY, textWidth + 40, textHeight + 40, WHITE);
-        
-        // Draw the text with animated color effect
-        static float colorTimer = 0.0f;
-        colorTimer += GetFrameTime() * 2.0f; // Control animation speed
-        
-        // Create pulsing text color effect
-        Color textColor = RED;
-        float pulseIntensity = (sinf(colorTimer) + 1.0f) * 0.5f; // Oscillates between 0 and 1
-        textColor.r = 200 + (int)(55 * pulseIntensity); // Red varies 200-255
-        textColor.b = (int)(100 * pulseIntensity);     // Add some blue for effect
-        
-        // Draw the text with special color
-        DrawText(text, boxX + 20, boxY + 20, fontSize, textColor);
-        
-        // Only draw START GAME button if waiting for keypress
-        if (h->waitForKeyPress) {
-            // Draw START GAME button under dialog with animation
-            const char* buttonText = "PRESS SPACE or ENTER to START GAME";
-            int buttonTextWidth = MeasureText(buttonText, fontSize);
-            int buttonWidth = buttonTextWidth + 40;
-            int buttonHeight = fontSize + 20;
-            int buttonX = boxX + (textWidth + 40 - buttonWidth)/2;
-            int buttonY = boxY + textHeight + 20;
-            
-            // Animated button color
-            Color buttonColor = GREEN;
-            buttonColor.g = 200 + (int)(55 * pulseIntensity); // Green varies 200-255
-            
-            // Draw button background with pulsing effect
-            DrawRectangle(buttonX, buttonY, buttonWidth, buttonHeight, Fade(buttonColor, 0.9f));
-            DrawRectangleLines(buttonX, buttonY, buttonWidth, buttonHeight, WHITE);
-            
-            // Draw button text with contrasting color
-            DrawText(buttonText, buttonX + 20, buttonY + 10, fontSize, BLACK);
-            
-            // Add a hint that it's interactive (bouncing arrow or similar)
-            DrawText("▼", buttonX + buttonWidth/2 - 10, buttonY + buttonHeight + 10, fontSize, YELLOW);
-        }
-    }
+    // Removed the old SIMPLE DIALOG MENU that was here for debugging.
+    // The new full-screen start menu is handled by DrawHumanStartMenu() in the main loop.
 }
 
 // Function to unload human character resources
@@ -2532,23 +2437,11 @@ void UpdateHuman(Human* h, float deltaTime) {
         h->position = (Vector3){ 0.0f, 0.3f, 0.0f };
     }
     
-    // Force active for testing - never allow deactivation
+    // If human is not active, no updates needed for its logic
     if (!h->active) {
-        h->active = true;
-        h->state = HUMAN_STATE_WALKING;
-        
-        // Initialize direction if needed
-        if (h->pathPointCount > 1) {
-            h->targetPosition = h->pathPoints[1];
-            h->direction = Vector3Normalize(Vector3Subtract(h->targetPosition, h->position));
-            h->rotationAngle = atan2f(h->direction.x, h->direction.z) * RAD2DEG;
-        } else if (Vector3Length(h->direction) < 0.1f) {
-            // Default direction if not set
-            h->direction = (Vector3){ 1.0f, 0.0f, 0.0f };
-            h->rotationAngle = 90.0f;
-        }
-        
-        TraceLog(LOG_WARNING, "Human was inactive, forcing active state for testing");
+        // The DrawHumanStartMenu will handle making the human inactive.
+        // The H key press in main can reactivate it.
+        return; 
     }
     
     // Update based on current state
@@ -2594,16 +2487,22 @@ void UpdateHuman(Human* h, float deltaTime) {
             
             // Check distance to destination instead of using timer
             float distanceToTarget = Vector3Distance(h->position, h->targetPosition);
-            TraceLog(LOG_INFO, "Walking time: %.2f, distance to target: %.2f", h->stateTimer, distanceToTarget);
+            TraceLog(LOG_WARNING, "Walking time: %.2f, distance to target: %.2f", h->stateTimer, distanceToTarget);
             
             // Only switch states when we're close enough to the destination
             if (distanceToTarget < 0.5f) {
-                // Arrived at destination, switch to talking
-                TraceLog(LOG_INFO, "REACHED DESTINATION - SWITCHING TO TALKING");
-                h->state = HUMAN_STATE_IDLE_AT_INTERSECTION; // Use this as a transition state
+                // Arrived at destination, switch to idle state for start menu
+                TraceLog(LOG_WARNING, "REACHED DESTINATION - SWITCHING TO IDLE FOR START MENU");
+                h->state = HUMAN_STATE_IDLE_AT_INTERSECTION;
                 h->stateTimer = 0.0f;
                 h->animFrameCounter = 0; // Reset animation counter for new state
-                TraceLog(LOG_INFO, "Human reached destination, transitioning to idle before talking");
+                                
+                // Force human to stay active for the menu
+                h->active = true; 
+                
+                TraceLog(LOG_WARNING, "Human reached destination, transitioning to HUMAN_STATE_IDLE_AT_INTERSECTION.");
+                TraceLog(LOG_WARNING, "Human state after transition: %d, active: %d", 
+                       h->state, h->active);
                 
                 // Snap to exact destination position to avoid floating point imprecision
                 h->position = h->targetPosition;
@@ -2613,8 +2512,10 @@ void UpdateHuman(Human* h, float deltaTime) {
         }
             
         case HUMAN_STATE_IDLE_AT_INTERSECTION: {
-            // This is a brief transition state before talking
-            
+            TraceLog(LOG_INFO, "Human IDLE_AT_INTERSECTION (Start Menu State)");
+
+            h->active = true; // Human stays active to display the menu
+
             // Update idle animation
             if (h->idleAnimCount > 0) {
                 h->animFrameCounter++;
@@ -2623,35 +2524,25 @@ void UpdateHuman(Human* h, float deltaTime) {
                     h->animFrameCounter = 0;
                 }
             }
-            
-            // After a short delay, transition to talking state
-            h->stateTimer += deltaTime;
-            if (h->stateTimer >= 1.0f) { // 1 second transition
-                h->state = HUMAN_STATE_TALKING;
-                h->stateTimer = 0.0f;
-                h->showDialog = true;
-                h->dialogTimer = 0.0f;
-                h->waitForKeyPress = true;
-                h->animFrameCounter = 0;
-                TraceLog(LOG_INFO, "Transition complete, now in talking state");
-            }
-            
+            // The DrawHumanStartMenu function handles input and state change to HUMAN_STATE_INACTIVE.
+            // No timed transition out of this state from here.
             break;
         }
             
         case HUMAN_STATE_TALKING: {
-            TraceLog(LOG_INFO, "Human TALKING, dialog=%d, waitForKey=%d", h->showDialog, h->waitForKeyPress);
+            // This state is not currently used in the primary welcome flow.
+            // If it were to be used, it would need its own dialog handling.
+            TraceLog(LOG_WARNING, "Human TALKING (currently unused in welcome flow), dialog=%d, waitForKey=%d", h->showDialog, h->waitForKeyPress);
             
-            // Update looking animation instead of idle for more dynamic appearance
+            h->active = true; // Ensure human is active if this state is somehow entered
+            // Play an animation (e.g., looking or idle)
             if (h->lookingAnimCount > 0) {
                 h->animFrameCounter++;
                 UpdateModelAnimation(h->lookingModel, h->lookingAnim[0], h->animFrameCounter);
                 if (h->animFrameCounter >= h->lookingAnim[0].frameCount) {
                     h->animFrameCounter = 0;
                 }
-                TraceLog(LOG_INFO, "Playing looking animation frame %d", h->animFrameCounter);
             } else if (h->idleAnimCount > 0) {
-                // Fall back to idle animation if looking animation isn't available
                 h->animFrameCounter++;
                 UpdateModelAnimation(h->idleModel, h->idleAnim[0], h->animFrameCounter);
                 if (h->animFrameCounter >= h->idleAnim[0].frameCount) {
@@ -2659,50 +2550,117 @@ void UpdateHuman(Human* h, float deltaTime) {
                 }
             }
             
-            // Force dialog to always be shown in talking state
-            h->showDialog = true;
-            h->waitForKeyPress = true;
-            
-            // If waiting for key press, check for space or enter
-            if (h->waitForKeyPress) {
-                if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
-                    TraceLog(LOG_INFO, "KEY PRESSED - ENDING DIALOG");
-                    h->waitForKeyPress = false;
-                    h->showDialog = false;
-                    
-                    // Return to walking state instead of disappearing
-                    h->state = HUMAN_STATE_WALKING;
-                    h->stateTimer = 0.0f;
-                    h->currentPathIndex = 0; // Restart path
-                    
-                    // Reset position to start of path
-                    h->position = h->pathPoints[0];
-                    if (h->pathPointCount > 1) {
-                        h->targetPosition = h->pathPoints[1];
-                        h->direction = Vector3Normalize(Vector3Subtract(h->targetPosition, h->position));
-                    }
-                    h->rotationAngle = atan2f(h->direction.x, h->direction.z) * RAD2DEG;
-                    h->animFrameCounter = 0;
-                }
-            }
+            // Example: If it had its own dialog condition and timer
+            // if (h->showDialog && h->waitForKeyPress) { ... }
             break;
         }
             
         case HUMAN_STATE_DISAPPEARING:
+            // This state could be used for a fade-out animation if desired.
+            // For now, it will just lead to inactive.
+            TraceLog(LOG_INFO, "Human DISAPPEARING");
+            h->disappearAlpha -= deltaTime * 0.5f; // Example fade out speed
+            if (h->disappearAlpha <= 0.0f) {
+                h->disappearAlpha = 0.0f;
+                h->active = false; // Fully disappeared
+                h->state = HUMAN_STATE_INACTIVE;
+            }
+            break;
+
         case HUMAN_STATE_INACTIVE:
+            // Human is inactive, do nothing further here.
+            // DrawHuman will not draw the model.
+            // DrawHumanStartMenu will not draw the menu.
+            TraceLog(LOG_INFO, "Human INACTIVE");
+            h->active = false; // Ensure active is false
+            break;
+
         default:
-            // Force back to active state for any unexpected states
-            TraceLog(LOG_WARNING, "Human in unexpected state %d, forcing WALKING state", h->state);
+            TraceLog(LOG_WARNING, "Human in unexpected state %d, resetting to WALKING state", h->state);
             h->active = true;
             h->state = HUMAN_STATE_WALKING;
             h->stateTimer = 0.0f;
-            h->currentPathIndex = 0;
+            h->currentPathIndex = 0; // Assuming path needs to be reset or re-evaluated
+            // Re-initialize direction or path if necessary here
+            // For safety, ensure pathPoints and targetPosition are valid if resetting to walking.
+            if (h->pathPointCount > 0) {
+                 h->targetPosition = h->pathPoints[h->currentPathIndex < h->pathPointCount ? h->currentPathIndex : 0];
+                 h->direction = Vector3Normalize(Vector3Subtract(h->targetPosition, h->position));
+                 h->rotationAngle = atan2f(h->direction.x, h->direction.z) * RAD2DEG;
+            } else {
+                // Fallback if no path, set a default direction
+                h->direction = (Vector3){0.0f, 0.0f, 1.0f};
+                h->rotationAngle = 0.0f;
+            }
             h->showDialog = false;
             h->waitForKeyPress = false;
-            
-            // Ensure character is visible
-            h->disappearAlpha = 1.0f;
+            h->disappearAlpha = 1.0f; // Ensure visible if reactivated
             break;
+    }
+}
+
+// Function to draw the full-screen start menu for the human character
+void DrawHumanStartMenu(Human* h) {
+    if (h->active && h->state == HUMAN_STATE_IDLE_AT_INTERSECTION) {
+        int screenWidth = GetScreenWidth();
+        int screenHeight = GetScreenHeight();
+
+        // Draw full-screen semi-transparent background
+        DrawRectangle(0, 0, screenWidth, screenHeight, Fade(BLACK, 0.85f));
+
+        // Welcome Text
+        const char* titleText = "Welcome to Grandpa's Farm!";
+        int titleFontSize = 50; // Larger font for title
+        int titleTextWidth = MeasureText(titleText, titleFontSize);
+        DrawText(titleText, screenWidth/2 - titleTextWidth/2, screenHeight/2 - 150, titleFontSize, WHITE);
+        
+        const char* subText1 = "Your grandpa left this place for you to continue his legacy.";
+        int subFontSize = 22;
+        int subText1Width = MeasureText(subText1, subFontSize);
+        DrawText(subText1, screenWidth/2 - subText1Width/2, screenHeight/2 - 80, subFontSize, LIGHTGRAY);
+
+        const char* subText2 = "Let's make it thrive!";
+        int subText2Width = MeasureText(subText2, subFontSize);
+        DrawText(subText2, screenWidth/2 - subText2Width/2, screenHeight/2 - 50, subFontSize, LIGHTGRAY);
+
+        // "START GAME" Button
+        const int buttonWidth = 220; // Slightly wider button
+        const int buttonHeight = 60; // Slightly taller button
+        const int buttonX = screenWidth/2 - buttonWidth/2;
+        const int buttonY = screenHeight/2 + 30; // Positioned below the text
+
+        Vector2 mousePoint = GetMousePosition();
+        bool mouseOverButton = CheckCollisionPointRec(mousePoint, (Rectangle){ (float)buttonX, (float)buttonY, (float)buttonWidth, (float)buttonHeight });
+
+        // Draw button with hover effect
+        DrawRectangle(buttonX, buttonY, buttonWidth, buttonHeight, mouseOverButton ? DARKBLUE : BLUE);
+        DrawRectangleLines(buttonX, buttonY, buttonWidth, buttonHeight, WHITE); // Add a border
+
+        const char* buttonText = "START GAME";
+        int buttonFontSize = 24; // Larger button text
+        int buttonTextWidth = MeasureText(buttonText, buttonFontSize);
+        DrawText(buttonText, buttonX + buttonWidth/2 - buttonTextWidth/2, buttonY + buttonHeight/2 - buttonFontSize/2, buttonFontSize, WHITE);
+
+        // Handle button click
+        if (mouseOverButton && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            TraceLog(LOG_INFO, "START GAME button clicked - making human inactive.");
+            h->active = false;
+            h->state = HUMAN_STATE_INACTIVE;
+        }
+
+        // Handle Enter/Space key press to start game
+        if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE)) {
+            TraceLog(LOG_INFO, "Enter/Space pressed - making human inactive.");
+            h->active = false;
+            h->state = HUMAN_STATE_INACTIVE;
+        }
+        
+        // Instruction for keyboard start
+        const char* instructionText = "Press ENTER or SPACE to start";
+        int instructionFontSize = 18;
+        int instructionTextWidth = MeasureText(instructionText, instructionFontSize);
+        DrawText(instructionText, screenWidth/2 - instructionTextWidth/2, buttonY + buttonHeight + 20, instructionFontSize, GRAY);
+
     }
 }
 
@@ -2720,7 +2678,7 @@ int main(void)
     // Define the camera
     Camera camera = {0};
     camera.position = (Vector3){0.0f, HUMAN_HEIGHT, 0.0f}; // Set camera at human height
-    camera.target = (Vector3){0.0f, HUMAN_HEIGHT, 1.0f};   // Look forward
+    camera.target = (Vector3){0.0f, HUMAN_HEIGHT, 1.0f};   // Look forward (will be updated)
     camera.up = (Vector3){0.0f, 1.0f, 0.0f};
     camera.fovy = 60.0f;
     camera.projection = CAMERA_PERSPECTIVE;
@@ -2834,6 +2792,11 @@ int main(void)
     buildings[4].scale = 0.5f; // Adjust scale as needed
     buildings[4].rotationAngle = 108.0f; // Adjust rotation as needed
 
+    // Orient camera to look at the farmhouse initially
+    Vector3 farmhouseLookAtPosition = buildings[4].position;
+    farmhouseLookAtPosition.y = HUMAN_HEIGHT; // Keep camera target at human height
+    camera.target = farmhouseLookAtPosition;
+
     // Initialize the human character
     InitHuman(&human);
     
@@ -2880,7 +2843,7 @@ int main(void)
     human.state = HUMAN_STATE_WALKING;
     human.stateTimer = 0.0f; // Start timer at 0
     human.showDialog = false; // No dialog initially
-    human.speed = 0.3f; // Increased speed to match the change in InitHuman
+    human.speed = 0.15f; // Reduced speed from 0.3f for slower movement
     
     // Make sure direction is properly set
     if (Vector3Length(human.direction) < 0.1f) {
@@ -3359,7 +3322,9 @@ int main(void)
         DrawAnimals();
         
         // Draw human character
-        DrawHuman(&human, camera);
+        if (human.active) { // Only draw the 3D model if active
+            DrawHuman(&human, camera);
+        }
         
         // Draw clouds
         DrawClouds(camera);
@@ -3423,6 +3388,9 @@ int main(void)
         DrawText(TextFormat("Cats: %d", animalCountByType[ANIMAL_CAT]), 610, 165, 10, BLACK);
         DrawText(TextFormat("Dogs: %d", animalCountByType[ANIMAL_DOG]), 610, 180,  10, BLACK);
         DrawText(TextFormat("Others: %d", animalCountByType[ANIMAL_COW] + animalCountByType[ANIMAL_CHICKEN] + animalCountByType[ANIMAL_PIG]), 610, 195, 10, BLACK);
+
+        // Draw the human start menu (full-screen dialog)
+        DrawHumanStartMenu(&human);
 
         EndDrawing();
     }
