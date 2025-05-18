@@ -28,6 +28,7 @@
 #define FOG_DENSITY 0.02f      // Fog density for distance effect
 #define FOG_COLOR (Color){ 200, 225, 255, 255 }  // Light blue fog
 #define SKY_COLOR (Color){ 135, 206, 235, 255 }  // Light blue sky color
+#define DIALOG_DISPLAY_TIME 8.0f  // Time to display dialog message in seconds
 
 // Chicken enclosure constants
 #define ENCLOSURE_CENTER_2 (Vector3){ -45.0f, 0.0f, -3.0f }
@@ -51,6 +52,7 @@
 #define NUMBER_OF_FLOWERS 300
 #define NUMBER_OF_FLOWER_TYPE2 900
 #define NUMBER_OF_BUSH_WITH_FLOWERS 400
+#define MAX_PATH_POINTS 200       // Maximum points in a recorded path
 
 // Plant types enum
 typedef enum {
@@ -83,6 +85,46 @@ void DrawPlants(Camera camera); // Modified to accept Camera
 void UnloadPlantResources(void);
 void ClearPlantsNearRoads(float clearExtraRadius); // Function to clear plants blocking roads
 bool IsNearBankOrOnRoadToBank(Vector3 position); // Check if player is near bank or on road to bank
+
+// Human character states
+typedef enum {
+    HUMAN_STATE_WALKING,
+    HUMAN_STATE_IDLE_AT_INTERSECTION,
+    HUMAN_STATE_TALKING,
+    HUMAN_STATE_DISAPPEARING,
+    HUMAN_STATE_INACTIVE
+} HumanState;
+
+// Human character structure
+typedef struct {
+    Model walkingModel;
+    Model idleModel;
+    Model lookingModel;
+    ModelAnimation* walkingAnim;
+    ModelAnimation* idleAnim;
+    ModelAnimation* lookingAnim;
+    int walkingAnimCount;
+    int idleAnimCount;
+    int lookingAnimCount;
+    int animFrameCounter;
+    Vector3 position;
+    Vector3 targetPosition;
+    Vector3 direction;
+    float speed;
+    float scale;
+    float rotationAngle;
+    HumanState state;
+    float stateTimer;
+    float disappearAlpha;
+    char dialogMessage[128];
+    bool showDialog;
+    float dialogTimer;
+    int currentPathIndex;
+    int pathPointCount;
+    Vector3 pathPoints[MAX_PATH_POINTS];
+    bool active;
+    bool waitForKeyPress;
+} Human;
 
 // --- Global Models for Plants ---
 Model globalTreeModel;
@@ -149,6 +191,9 @@ Animal animals[MAX_ANIMALS];
 int animalCount = 0;
 int animalCountByType[ANIMAL_COUNT] = {0};
 
+// Global human character
+Human human;
+
 // Global array of buildings
 Building buildings[MAX_BUILDINGS];
 
@@ -164,7 +209,6 @@ float roadRotationAngle;
 float roadLength;
 float roadWidth = 4.0f; 
 
-#define MAX_PATH_POINTS 200       // Maximum points in a recorded path
 #define MAX_CUSTOM_ROADS 10
 
 typedef struct {
@@ -887,7 +931,7 @@ void DrawAllCustomRoads() {
     }
 }
 
-// ... InitAnimal function ...
+// --- InitAnimal function ...
 
 // Function to initialize a new animal
 void InitAnimal(Animal* animal, AnimalType type, Vector3 position) {
@@ -2090,6 +2134,578 @@ bool IsNearBankOrOnRoadToBank(Vector3 position) {
     return false;
 }
 
+// Human character function definitions
+
+// Function to initialize a human character
+void InitHuman(Human* h) {
+    TraceLog(LOG_INFO, "Initializing human character");
+    
+    // Create a default cube model as a fallback in case model loading fails
+    Model fallbackModel = LoadModelFromMesh(GenMeshCube(1.0f, 2.0f, 1.0f));
+    
+    // Load models from the resources/humans folder with extended error handling
+    TraceLog(LOG_INFO, "Loading human walking model...");
+    h->walkingModel = LoadModel("humans/walking_character.glb");
+    
+    TraceLog(LOG_INFO, "Loading human idle model...");
+    h->idleModel = LoadModel("humans/idle_character.glb");
+    
+    TraceLog(LOG_INFO, "Loading human looking model...");
+    h->lookingModel = LoadModel("humans/looking_character.glb");
+    
+    // Check if models loaded successfully and use fallbacks if needed
+    if (h->walkingModel.meshCount == 0) {
+        TraceLog(LOG_ERROR, "Failed to load humans/walking_character.glb - using fallback cube");
+        h->walkingModel = fallbackModel;
+    }
+    
+    if (h->idleModel.meshCount == 0) {
+        TraceLog(LOG_ERROR, "Failed to load humans/idle_character.glb - using fallback cube");
+        h->idleModel = fallbackModel;
+    }
+    
+    if (h->lookingModel.meshCount == 0) {
+        TraceLog(LOG_ERROR, "Failed to load humans/looking_character.glb - using fallback cube");
+        h->lookingModel = fallbackModel;
+    }
+    
+    // Initialize animation pointers to NULL
+    h->walkingAnim = NULL;
+    h->idleAnim = NULL;
+    h->lookingAnim = NULL;
+    h->walkingAnimCount = 0;
+    h->idleAnimCount = 0;
+    h->lookingAnimCount = 0;
+    
+    // Load animations - this is where errors might occur
+    TraceLog(LOG_INFO, "Loading human animations");
+    h->walkingAnim = LoadModelAnimations("humans/walking_character.glb", &h->walkingAnimCount);
+    h->idleAnim = LoadModelAnimations("humans/idle_character.glb", &h->idleAnimCount);
+    h->lookingAnim = LoadModelAnimations("humans/looking_character.glb", &h->lookingAnimCount);
+    h->animFrameCounter = 0;
+    
+    // Check if animations loaded successfully
+    if (h->walkingAnimCount > 0) {
+        TraceLog(LOG_INFO, "Human walking animation loaded successfully with %d frames", h->walkingAnim[0].frameCount);
+    } else {
+        TraceLog(LOG_ERROR, "Failed to load human walking animation");
+    }
+    
+    if (h->idleAnimCount > 0) {
+        TraceLog(LOG_INFO, "Human idle animation loaded successfully with %d frames", h->idleAnim[0].frameCount);
+    } else {
+        TraceLog(LOG_ERROR, "Failed to load human idle animation");
+        // If no idle animation, copy walking animation as fallback
+        if (h->walkingAnimCount > 0) {
+            TraceLog(LOG_INFO, "Using walking animation as fallback for idle");
+            h->idleModel = h->walkingModel;
+            h->idleAnim = h->walkingAnim;
+            h->idleAnimCount = h->walkingAnimCount;
+        }
+    }
+    
+    if (h->lookingAnimCount > 0) {
+        TraceLog(LOG_INFO, "Human looking animation loaded successfully with %d frames", h->lookingAnim[0].frameCount);
+    } else {
+        TraceLog(LOG_ERROR, "Failed to load human looking animation");
+        // If no looking animation, use idle animation as fallback
+        if (h->idleAnimCount > 0) {
+            TraceLog(LOG_INFO, "Using idle animation as fallback for looking");
+            h->lookingModel = h->idleModel;
+            h->lookingAnim = h->idleAnim;
+            h->lookingAnimCount = h->idleAnimCount;
+        }
+    }
+    
+    // Set default values
+    h->position = (Vector3){ 0.0f, 0.3f, 0.0f };  // Slightly above ground level
+    h->targetPosition = (Vector3){ 0.0f, 0.3f, 0.0f };
+    h->direction = (Vector3){ 0.0f, 0.0f, 1.0f };  // Default facing forward
+    h->speed = 0.05f;  // Significantly reduced speed for slower, more natural movement
+    h->scale = 2.0f;   // Reduced scale from 8.0 to 2.0 for better proportions
+    h->rotationAngle = 0.0f;
+    h->state = HUMAN_STATE_WALKING;  // Start in walking state
+    h->stateTimer = 0.0f;
+    h->disappearAlpha = 1.0f;
+    // Shortened message to fit within the 128 character buffer
+    strncpy(h->dialogMessage, "Welcome to grandpa's farm! I'm here to guide you. Your grandpa left this place for you to continue his legacy. Let's make it thrive!", 127);
+    h->dialogMessage[127] = '\0'; // Ensure null termination
+    h->showDialog = false;
+    h->dialogTimer = 0.0f;
+    h->currentPathIndex = 0;
+    h->pathPointCount = 0;
+    h->active = true;  // Start active
+    h->waitForKeyPress = false;
+    
+    TraceLog(LOG_INFO, "Human character initialized successfully with speed %.3f", h->speed);
+}
+
+// Check if a position is at a road intersection
+bool IsRoadIntersection(Vector3 position, float threshold) {
+    // First check against actual road intersections
+    int crossingCount = 0;
+    
+    // Check each road to count how many are near this position
+    for (int i = 0; i < totalCustomRoadsCount; i++) {
+        for (int j = 0; j < allCustomRoads[i].numPoints; j++) {
+            if (Vector3Distance(position, allCustomRoads[i].points[j]) < threshold) {
+                crossingCount++;
+                break;  // Count each road only once
+            }
+        }
+    }
+    
+    // If more than one road is nearby, it's likely an intersection
+    if (crossingCount > 1) {
+        TraceLog(LOG_INFO, "Found road intersection at (%.2f, %.2f, %.2f)", position.x, position.y, position.z);
+        return true;
+    }
+    
+    // For direct paths (fallback), create a virtual intersection at the midpoint
+    // Only check this for the human character's path
+    if (human.active && human.pathPointCount == 2) {
+        // Calculate midpoint of the direct path
+        Vector3 midpoint = {
+            (human.pathPoints[0].x + human.pathPoints[1].x) / 2.0f,
+            (human.pathPoints[0].y + human.pathPoints[1].y) / 2.0f,
+            (human.pathPoints[0].z + human.pathPoints[1].z) / 2.0f
+        };
+        
+        // Check if the position is near the midpoint
+        if (Vector3Distance(position, midpoint) < threshold) {
+            TraceLog(LOG_INFO, "Found virtual intersection at midpoint (%.2f, %.2f, %.2f)", 
+                     midpoint.x, midpoint.y, midpoint.z);
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+// Function to set up the human path from farmhouse to barn
+void SetupHumanPath(Human* h, Vector3 startPos, Vector3 endPos) {
+    // Log input parameters
+    TraceLog(LOG_INFO, "SetupHumanPath called with start=(%.2f, %.2f, %.2f), end=(%.2f, %.2f, %.2f)",
+             startPos.x, startPos.y, startPos.z, endPos.x, endPos.y, endPos.z);
+    
+    // Log initial human state
+    TraceLog(LOG_INFO, "Human state before path setup: active=%d, state=%d",
+             h->active, h->state);
+    
+    // Make sure the human is slightly above ground to avoid Z-fighting
+    h->position = startPos;
+    h->position.y = 0.3f;
+    h->pathPoints[0] = h->position;
+    
+    // Force the human to be active and in walking state immediately
+    h->active = true;
+    h->state = HUMAN_STATE_WALKING;
+    
+    TraceLog(LOG_INFO, "Setting up human path from (%.2f, %.2f, %.2f) to (%.2f, %.2f, %.2f)", 
+             h->position.x, h->position.y, h->position.z, endPos.x, endPos.y, endPos.z);
+    
+    // Set up direct path from start to end
+    h->pathPointCount = 2;
+    h->pathPoints[0] = h->position;
+    h->pathPoints[1] = endPos;
+    h->pathPoints[1].y = 0.3f; // Consistent height
+    h->currentPathIndex = 0;
+    h->targetPosition = h->pathPoints[1];
+    
+    // Calculate initial direction for direct path
+    Vector3 pathVector = Vector3Subtract(h->targetPosition, h->position);
+    float pathLength = Vector3Length(pathVector);
+    
+    // Make sure we have a valid direction
+    if (pathLength > 0.001f) {
+        h->direction = Vector3Scale(pathVector, 1.0f/pathLength); // Normalize manually
+    } else {
+        // Fallback direction if start and end are too close
+        h->direction = (Vector3){ 0.0f, 0.0f, 1.0f };
+        TraceLog(LOG_WARNING, "Path points too close, using default direction");
+    }
+    
+    // Calculate initial rotation angle for direct path
+    h->rotationAngle = atan2f(h->direction.x, h->direction.z) * RAD2DEG;
+    
+    // Reset state timer
+    h->stateTimer = 0.0f;
+    
+    // Log the direction vector
+    TraceLog(LOG_INFO, "Human direction set to (%.2f, %.2f, %.2f), rotation=%.2f", 
+             h->direction.x, h->direction.y, h->direction.z, h->rotationAngle);
+    
+    // Log that we're activating the human
+    TraceLog(LOG_INFO, "Human activated with direct path! active=%d, state=%d", 
+            h->active, h->state);
+}
+
+// Function to draw the human character
+void DrawHuman(Human* h, Camera camera) {
+    // Add debug logging
+    TraceLog(LOG_INFO, "DrawHuman called: active=%d, state=%d, position=(%.2f, %.2f, %.2f)", 
+        h->active, h->state, h->position.x, h->position.y, h->position.z);
+    
+    // Draw appropriately sized debug markers to help locate where the human should be
+    DrawSphere(h->position, 0.8f, RED);      // Reduced to match smaller character scale
+    DrawCube(h->position, 0.5f, 1.5f, 0.5f, YELLOW);  // Reduced size to be proportional
+    
+    // Draw a vertical line above the character for better visibility from a distance
+    Vector3 lineTop = h->position;
+    lineTop.y += 10.0f;  // Draw a shorter line (10 units high)
+    DrawLine3D(h->position, lineTop, (Color){255, 0, 255, 255}); // Bright magenta line
+    
+    // Draw smaller path points for debugging (always show these)
+    for (int i = 0; i < h->pathPointCount; i++) {
+        DrawSphere(h->pathPoints[i], 0.7f, BLUE);  // Reduced to match smaller character scale
+        if (i < h->pathPointCount - 1) {
+            // Draw line connecting path points
+            DrawLine3D(h->pathPoints[i], h->pathPoints[i+1], GREEN);
+            
+            // Add vertical markers at each path point
+            Vector3 markerTop = h->pathPoints[i];
+            markerTop.y += 5.0f;
+            DrawLine3D(h->pathPoints[i], markerTop, ORANGE);
+        }
+    }
+    
+    // Add a special marker at the destination
+    if (h->pathPointCount > 0) {
+        Vector3 destination = h->pathPoints[h->pathPointCount - 1];
+        DrawCube(destination, 1.0f, 1.0f, 1.0f, (Color){0, 255, 255, 200}); // Cyan cube
+    }
+    
+    if (!h->active) {
+        TraceLog(LOG_WARNING, "Skipping human model draw because active=false");
+        return;
+    }
+    
+    // Determine which model to use based on state
+    Model modelToDraw;
+    switch (h->state) {
+        case HUMAN_STATE_WALKING:
+            modelToDraw = h->walkingModel;
+            TraceLog(LOG_INFO, "Using walking model for human");
+            break;
+        case HUMAN_STATE_TALKING:
+            modelToDraw = h->idleModel;  // Use idle model for talking state
+            TraceLog(LOG_INFO, "Using idle model for human while talking");
+            break;
+        case HUMAN_STATE_DISAPPEARING:
+            modelToDraw = h->idleModel;
+            TraceLog(LOG_INFO, "Using idle model for disappearing human");
+            break;
+        default:
+            TraceLog(LOG_WARNING, "Human in unexpected state: %d", h->state);
+            modelToDraw = h->idleModel; // Default to idle model
+            break;
+    }
+    
+    // Check if model is valid
+    if (modelToDraw.meshCount == 0) {
+        TraceLog(LOG_ERROR, "Invalid model for human state %d", h->state);
+        return;
+    }
+    
+    // Calculate alpha for disappearing effect
+    Color tint = WHITE;
+    if (h->state == HUMAN_STATE_DISAPPEARING) {
+        tint.a = (unsigned char)(h->disappearAlpha * 255.0f);
+    }
+    
+    // Draw the human model
+    TraceLog(LOG_INFO, "Drawing human model at (%.2f, %.2f, %.2f) with rotation %.2f, scale %.2f", 
+           h->position.x, h->position.y, h->position.z, h->rotationAngle, h->scale);
+    
+    DrawModelEx(modelToDraw,
+              h->position,
+              (Vector3){0.0f, 1.0f, 0.0f},  // Rotation axis (Y-axis)
+              h->rotationAngle,         // Rotation angle
+              (Vector3){h->scale, h->scale, h->scale},
+              tint);
+    
+    // Draw the dialog message if needed
+    if (h->showDialog) {
+        TraceLog(LOG_INFO, "Drawing dialog for human: %s", h->dialogMessage);
+        
+        // Get screen position for the dialog
+        Vector3 headPosition = Vector3Add(h->position, (Vector3){0.0f, 3.0f * h->scale, 0.0f});
+        Vector2 screenPos = GetWorldToScreen(headPosition, camera);
+        
+        // Make dialog text larger and more visible
+        int fontSize = 40;
+        int maxWidth = GetScreenWidth() * 0.8;
+        
+        // Calculate text measurements
+        const char* text = h->dialogMessage;
+        int textWidth = MeasureText(text, fontSize);
+        int textHeight = fontSize * 3; // Rough estimate for multiple lines
+        
+        // Limit width and wrap text if needed
+        if (textWidth > maxWidth) {
+            textWidth = maxWidth;
+        }
+        
+        // Ensure dialog stays on screen
+        int boxX = screenPos.x - textWidth/2 - 20;
+        if (boxX < 10) boxX = 10;
+        if (boxX + textWidth + 40 > GetScreenWidth()) 
+            boxX = GetScreenWidth() - textWidth - 40;
+        
+        int boxY = screenPos.y - 60;
+        if (boxY < 10) boxY = 10;
+        
+        // Draw background for the text - make it larger and more visible
+        DrawRectangle(boxX, boxY, textWidth + 40, textHeight + 40, Fade(BLACK, 0.8f));
+        DrawRectangleLines(boxX, boxY, textWidth + 40, textHeight + 40, WHITE);
+        
+        // Draw the text with animated color effect
+        static float colorTimer = 0.0f;
+        colorTimer += GetFrameTime() * 2.0f; // Control animation speed
+        
+        // Create pulsing text color effect
+        Color textColor = RED;
+        float pulseIntensity = (sinf(colorTimer) + 1.0f) * 0.5f; // Oscillates between 0 and 1
+        textColor.r = 200 + (int)(55 * pulseIntensity); // Red varies 200-255
+        textColor.b = (int)(100 * pulseIntensity);     // Add some blue for effect
+        
+        // Draw the text with special color
+        DrawText(text, boxX + 20, boxY + 20, fontSize, textColor);
+        
+        // Only draw START GAME button if waiting for keypress
+        if (h->waitForKeyPress) {
+            // Draw START GAME button under dialog with animation
+            const char* buttonText = "PRESS SPACE or ENTER to START GAME";
+            int buttonTextWidth = MeasureText(buttonText, fontSize);
+            int buttonWidth = buttonTextWidth + 40;
+            int buttonHeight = fontSize + 20;
+            int buttonX = boxX + (textWidth + 40 - buttonWidth)/2;
+            int buttonY = boxY + textHeight + 20;
+            
+            // Animated button color
+            Color buttonColor = GREEN;
+            buttonColor.g = 200 + (int)(55 * pulseIntensity); // Green varies 200-255
+            
+            // Draw button background with pulsing effect
+            DrawRectangle(buttonX, buttonY, buttonWidth, buttonHeight, Fade(buttonColor, 0.9f));
+            DrawRectangleLines(buttonX, buttonY, buttonWidth, buttonHeight, WHITE);
+            
+            // Draw button text with contrasting color
+            DrawText(buttonText, buttonX + 20, buttonY + 10, fontSize, BLACK);
+            
+            // Add a hint that it's interactive (bouncing arrow or similar)
+            DrawText("▼", buttonX + buttonWidth/2 - 10, buttonY + buttonHeight + 10, fontSize, YELLOW);
+        }
+    }
+}
+
+// Function to unload human character resources
+void UnloadHumanResources(Human* h) {
+    UnloadModel(h->walkingModel);
+    UnloadModel(h->idleModel);
+    UnloadModel(h->lookingModel);
+    
+    // Unload animations
+    if (h->walkingAnim != NULL && h->walkingAnimCount > 0) {
+        UnloadModelAnimations(h->walkingAnim, h->walkingAnimCount);
+    }
+    
+    if (h->idleAnim != NULL && h->idleAnimCount > 0) {
+        UnloadModelAnimations(h->idleAnim, h->idleAnimCount);
+    }
+    
+    if (h->lookingAnim != NULL && h->lookingAnimCount > 0) {
+        UnloadModelAnimations(h->lookingAnim, h->lookingAnimCount);
+    }
+}
+
+// Function to update the human character
+void UpdateHuman(Human* h, float deltaTime) {
+    // Add debug logging at the start of UpdateHuman
+    TraceLog(LOG_INFO, "UpdateHuman called: active=%d, state=%d, position=(%.2f, %.2f, %.2f)", 
+              h->active, h->state, h->position.x, h->position.y, h->position.z);
+              
+    // EMERGENCY FIX: If position is too far from the origin, reset to origin
+    float distanceFromOrigin = Vector3Length(h->position);
+    if (distanceFromOrigin > 500.0f) {
+        TraceLog(LOG_WARNING, "Human position too far (%.2f units), resetting to origin", distanceFromOrigin);
+        h->position = (Vector3){ 0.0f, 0.3f, 0.0f };
+    }
+    
+    // Force active for testing - never allow deactivation
+    if (!h->active) {
+        h->active = true;
+        h->state = HUMAN_STATE_WALKING;
+        
+        // Initialize direction if needed
+        if (h->pathPointCount > 1) {
+            h->targetPosition = h->pathPoints[1];
+            h->direction = Vector3Normalize(Vector3Subtract(h->targetPosition, h->position));
+            h->rotationAngle = atan2f(h->direction.x, h->direction.z) * RAD2DEG;
+        } else if (Vector3Length(h->direction) < 0.1f) {
+            // Default direction if not set
+            h->direction = (Vector3){ 1.0f, 0.0f, 0.0f };
+            h->rotationAngle = 90.0f;
+        }
+        
+        TraceLog(LOG_WARNING, "Human was inactive, forcing active state for testing");
+    }
+    
+    // Update based on current state
+    switch (h->state) {
+        case HUMAN_STATE_WALKING: {
+            TraceLog(LOG_INFO, "Human WALKING, time=%.2f", h->stateTimer);
+            
+            // Update walking animation
+            if (h->walkingAnimCount > 0) {
+                h->animFrameCounter++;
+                UpdateModelAnimation(h->walkingModel, h->walkingAnim[0], h->animFrameCounter);
+                if (h->animFrameCounter >= h->walkingAnim[0].frameCount) {
+                    h->animFrameCounter = 0;
+                }
+                TraceLog(LOG_INFO, "Playing walking animation frame %d", h->animFrameCounter);
+            } else {
+                TraceLog(LOG_WARNING, "No walking animation available");
+            }
+            
+            // Calculate movement distance for this frame
+            float moveDistance = h->speed * deltaTime * 5.0f; // Significantly reduced from 100.0f to 5.0f for slower movement
+            TraceLog(LOG_INFO, "Moving distance: %.4f per frame", moveDistance);
+            
+            // Calculate direction to current target point (second path point)
+            Vector3 pathDirection = Vector3Normalize(Vector3Subtract(h->targetPosition, h->position));
+            
+            // Use exact path direction for movement - no blending with X-axis
+            Vector3 exactPathDirection = pathDirection;
+            
+            // Move precisely along path
+            Vector3 movement = Vector3Scale(exactPathDirection, moveDistance);
+            h->position = Vector3Add(h->position, movement);
+            
+            // Update rotation to face movement direction
+            h->rotationAngle = atan2f(exactPathDirection.x, exactPathDirection.z) * RAD2DEG;
+            
+            // Log the movement
+            TraceLog(LOG_INFO, "Human position updated to (%.2f, %.2f, %.2f)", 
+                     h->position.x, h->position.y, h->position.z);
+            
+            // Update timer but don't use it for state transitions
+            h->stateTimer += deltaTime;
+            
+            // Check distance to destination instead of using timer
+            float distanceToTarget = Vector3Distance(h->position, h->targetPosition);
+            TraceLog(LOG_INFO, "Walking time: %.2f, distance to target: %.2f", h->stateTimer, distanceToTarget);
+            
+            // Only switch states when we're close enough to the destination
+            if (distanceToTarget < 0.5f) {
+                // Arrived at destination, switch to talking
+                TraceLog(LOG_INFO, "REACHED DESTINATION - SWITCHING TO TALKING");
+                h->state = HUMAN_STATE_IDLE_AT_INTERSECTION; // Use this as a transition state
+                h->stateTimer = 0.0f;
+                h->animFrameCounter = 0; // Reset animation counter for new state
+                TraceLog(LOG_INFO, "Human reached destination, transitioning to idle before talking");
+                
+                // Snap to exact destination position to avoid floating point imprecision
+                h->position = h->targetPosition;
+            }
+            
+            break;
+        }
+            
+        case HUMAN_STATE_IDLE_AT_INTERSECTION: {
+            // This is a brief transition state before talking
+            
+            // Update idle animation
+            if (h->idleAnimCount > 0) {
+                h->animFrameCounter++;
+                UpdateModelAnimation(h->idleModel, h->idleAnim[0], h->animFrameCounter);
+                if (h->animFrameCounter >= h->idleAnim[0].frameCount) {
+                    h->animFrameCounter = 0;
+                }
+            }
+            
+            // After a short delay, transition to talking state
+            h->stateTimer += deltaTime;
+            if (h->stateTimer >= 1.0f) { // 1 second transition
+                h->state = HUMAN_STATE_TALKING;
+                h->stateTimer = 0.0f;
+                h->showDialog = true;
+                h->dialogTimer = 0.0f;
+                h->waitForKeyPress = true;
+                h->animFrameCounter = 0;
+                TraceLog(LOG_INFO, "Transition complete, now in talking state");
+            }
+            
+            break;
+        }
+            
+        case HUMAN_STATE_TALKING: {
+            TraceLog(LOG_INFO, "Human TALKING, dialog=%d, waitForKey=%d", h->showDialog, h->waitForKeyPress);
+            
+            // Update looking animation instead of idle for more dynamic appearance
+            if (h->lookingAnimCount > 0) {
+                h->animFrameCounter++;
+                UpdateModelAnimation(h->lookingModel, h->lookingAnim[0], h->animFrameCounter);
+                if (h->animFrameCounter >= h->lookingAnim[0].frameCount) {
+                    h->animFrameCounter = 0;
+                }
+                TraceLog(LOG_INFO, "Playing looking animation frame %d", h->animFrameCounter);
+            } else if (h->idleAnimCount > 0) {
+                // Fall back to idle animation if looking animation isn't available
+                h->animFrameCounter++;
+                UpdateModelAnimation(h->idleModel, h->idleAnim[0], h->animFrameCounter);
+                if (h->animFrameCounter >= h->idleAnim[0].frameCount) {
+                    h->animFrameCounter = 0;
+                }
+            }
+            
+            // Force dialog to always be shown in talking state
+            h->showDialog = true;
+            h->waitForKeyPress = true;
+            
+            // If waiting for key press, check for space or enter
+            if (h->waitForKeyPress) {
+                if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
+                    TraceLog(LOG_INFO, "KEY PRESSED - ENDING DIALOG");
+                    h->waitForKeyPress = false;
+                    h->showDialog = false;
+                    
+                    // Return to walking state instead of disappearing
+                    h->state = HUMAN_STATE_WALKING;
+                    h->stateTimer = 0.0f;
+                    h->currentPathIndex = 0; // Restart path
+                    
+                    // Reset position to start of path
+                    h->position = h->pathPoints[0];
+                    if (h->pathPointCount > 1) {
+                        h->targetPosition = h->pathPoints[1];
+                        h->direction = Vector3Normalize(Vector3Subtract(h->targetPosition, h->position));
+                    }
+                    h->rotationAngle = atan2f(h->direction.x, h->direction.z) * RAD2DEG;
+                    h->animFrameCounter = 0;
+                }
+            }
+            break;
+        }
+            
+        case HUMAN_STATE_DISAPPEARING:
+        case HUMAN_STATE_INACTIVE:
+        default:
+            // Force back to active state for any unexpected states
+            TraceLog(LOG_WARNING, "Human in unexpected state %d, forcing WALKING state", h->state);
+            h->active = true;
+            h->state = HUMAN_STATE_WALKING;
+            h->stateTimer = 0.0f;
+            h->currentPathIndex = 0;
+            h->showDialog = false;
+            h->waitForKeyPress = false;
+            
+            // Ensure character is visible
+            h->disappearAlpha = 1.0f;
+            break;
+    }
+}
+
 int main(void)
 {
     // const int screenWidth = 1512;
@@ -2217,6 +2833,65 @@ int main(void)
     buildings[4].position = (Vector3){ -35.0f, 0.1f, 20.0f }; // Positioned near the constructionHouse
     buildings[4].scale = 0.5f; // Adjust scale as needed
     buildings[4].rotationAngle = 108.0f; // Adjust rotation as needed
+
+    // Initialize the human character
+    InitHuman(&human);
+    
+    // Set up human path from farmhouse to barn - with proper offsets and debug messages
+    Vector3 farmhousePosition = buildings[4].position;  // FarmHouse position
+    Vector3 barnPosition = buildings[0].position;       // Barn position
+    
+    // Make sure farmhouse and barn positions are far enough apart
+    float pathDistance = Vector3Distance(farmhousePosition, barnPosition);
+    TraceLog(LOG_INFO, "Distance between farmhouse and barn: %.2f units", pathDistance);
+    
+    // Offset start position to be in front of farmhouse
+    farmhousePosition.x += 3.0f; // Move 3 units out from the farmhouse
+    farmhousePosition.y = 0.3f;  // Set consistent height above ground
+    
+    // Offset end position to be more to the right of the barn
+    barnPosition.x += 15.0f;  // Increased from 2.0f to move further right
+    barnPosition.z += 5.0f;   // Also shift a bit forward for better visibility
+    barnPosition.y = 0.3f;
+    
+    // Reduce the path length by 60%
+    Vector3 pathVector = Vector3Subtract(barnPosition, farmhousePosition);
+    float originalDistance = Vector3Length(pathVector);
+    
+    // Calculate 40% of the original distance (reducing path by 60%)
+    float newDistance = originalDistance * 0.4f;
+    
+    // Update barn position to be 40% of the original distance from farmhouse
+    Vector3 direction = Vector3Normalize(pathVector);
+    barnPosition = Vector3Add(farmhousePosition, Vector3Scale(direction, newDistance));
+    
+    TraceLog(LOG_INFO, "Path shortened from %.2f to %.2f units (40%% of original)", 
+             originalDistance, newDistance);
+    
+    TraceLog(LOG_INFO, "About to setup human path from farmhouse (%.2f, %.2f, %.2f) to barn (%.2f, %.2f, %.2f)",
+             farmhousePosition.x, farmhousePosition.y, farmhousePosition.z,
+             barnPosition.x, barnPosition.y, barnPosition.z);
+    
+    // Set up the path for the human
+    SetupHumanPath(&human, farmhousePosition, barnPosition);
+    
+    // Extra failsafe to ensure the human is active and has good speed
+    human.active = true;
+    human.state = HUMAN_STATE_WALKING;
+    human.stateTimer = 0.0f; // Start timer at 0
+    human.showDialog = false; // No dialog initially
+    human.speed = 0.3f; // Increased speed to match the change in InitHuman
+    
+    // Make sure direction is properly set
+    if (Vector3Length(human.direction) < 0.1f) {
+        // If direction isn't set correctly, use a default direction
+        human.direction = (Vector3){ 1.0f, 0.0f, 0.0f }; // Default direction: right
+        human.rotationAngle = 90.0f; // Facing East
+        TraceLog(LOG_WARNING, "Human direction not properly set, using default");
+    }
+    
+    TraceLog(LOG_INFO, "Human setup complete - active=%d, state=%d, direction=(%.2f, %.2f, %.2f), speed=%.2f",
+             human.active, human.state, human.direction.x, human.direction.y, human.direction.z, human.speed);
 
     // Create animal enclosure using fences
     const float FENCE_MODEL_SCALE_CONST = 0.2f;
@@ -2550,6 +3225,19 @@ int main(void)
             showDebugVisualization = !showDebugVisualization;
             TraceLog(LOG_INFO, "Debug visualization: %s", showDebugVisualization ? "ON" : "OFF");
         }
+        
+        // Reset human character position when H is pressed
+        if (IsKeyPressed(KEY_H)) {
+            // Reset human to starting position
+            human.position = farmhousePosition;
+            human.state = HUMAN_STATE_WALKING;
+            human.stateTimer = 0.0f;
+            human.active = true;
+            
+            // Re-setup path
+            SetupHumanPath(&human, farmhousePosition, barnPosition);
+            TraceLog(LOG_INFO, "Human character reset to starting position");
+        }
 
         if (isRecordingPath && currentRecordingPointCount < MAX_PATH_POINTS) {
             if (currentRecordingPointCount == 0) {
@@ -2597,6 +3285,9 @@ int main(void)
                 UpdateAnimal(&animals[i], FIXED_TERRAIN_SIZE);
             }
         }
+        
+        // Update human character
+        UpdateHuman(&human, GetFrameTime());
 
         BeginDrawing();
         ClearBackground(SKY_COLOR); // Use sky color as background
@@ -2666,6 +3357,9 @@ int main(void)
 
         // Draw animals
         DrawAnimals();
+        
+        // Draw human character
+        DrawHuman(&human, camera);
         
         // Draw clouds
         DrawClouds(camera);
@@ -2781,6 +3475,9 @@ int main(void)
 
     // Unload animal resources
     UnloadAnimalResources();
+    
+    // Unload human character resources
+    UnloadHumanResources(&human);
 
     CloseWindow();
     return 0;
