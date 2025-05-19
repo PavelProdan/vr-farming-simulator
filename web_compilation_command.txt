@@ -1,0 +1,1 @@
+emcc src/main.c -o game.html -O3 -flto -Wall -Iinclude -Ibuild/external/raylib-master/src -Lbuild/external/raylib-master/src -lraylib.web -s USE_GLFW=3 -s ASYNCIFY -s ALLOW_MEMORY_GROWTH=1 -s ASSERTIONS=0 -s TOTAL_STACK=10485760 -s "EXPORTED_RUNTIME_METHODS=['HEAPF32','ccall','cwrap']" --shell-file build/external/raylib-master/src/shell.html --preload-file resources@/resources
