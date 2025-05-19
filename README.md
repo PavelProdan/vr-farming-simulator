@@ -1,21 +1,147 @@
-# Raylib-Quickstart
-A simple cross platform template for setting up a project with the bleeding edge raylib code.
-Works with C or C++.
+# Farming Simulator
 
-## Supported Platforms
-Quickstart supports the main 3 desktop platforms:
-* Windows
-* Linux
-* MacOS
+A charming 3D farming simulation game where you manage animals to build your dream farm. Take care of various animals, manage resources, and grow your farming empire!
 
-# Naming projects
-Do not name your game project 'raylib', it will conflict with the raylib library.
+## 🎮 Game Features
+
+### 🐾 Animals
+- **Available Animals:**
+  - 🐔 Chickens: Your source of fresh eggs
+  - 🐷 Pigs: Produce quality steak
+  - 🐮 Cows: Provide fresh milk
+  - Decorative animals:
+    - 🐎 Horses
+    - 🐱 Cats
+    - 🐕 Dogs
+
+### 🍽️ Animal Care System
+#### Hunger Management
+- Animals have hunger levels ranging from 0-100%
+- Hunger depletes automatically:
+  - Chickens: 5% every 10 seconds
+  - Pigs: 8% every 10 seconds
+  - Cows: 8% every 10 seconds
+- Each animal requires 1 food unit for feeding
+- Animals must be fed regularly to maintain productivity
+
+#### Production Mechanics
+- **Production Requirements:**
+  - Animals need >20% hunger level to produce
+  - Products must be collected manually
+  - One product per animal when ready
+- **Production Times:**
+  - 🥚 Eggs: 30 seconds per chicken
+  - 🥩 Steak: 120 seconds per pig
+  - 🥛 Milk: 60 seconds per cow
+
+### 💰 Economy
+#### Starting Resources
+- 100 coins
+- 200 food units in barn
+
+#### Pricing
+- **Buy Prices:**
+  - Food: 5 coins
+  - Chicken: 20 coins
+  - Pig: 50 coins
+  - Cow: 100 coins
+  - Farmhouse: 1000 coins
+- **Sell Prices:**
+  - Eggs: 2 coins each
+  - Milk: 8 coins each
+  - Steak: 15 coins each
+
+### 🏪 Storage Systems
+#### Barn Storage
+- Central storage facility
+- Stores:
+  - Food supplies
+  - Eggs
+  - Milk
+  - Steak
+- Transfer items between inventory and barn
+
+#### Player Inventory
+- Single-slot system
+- Can hold one type of item at a time
+- Must be empty to collect new items
+
+### 🏡 Buildings & Infrastructure
+- **Core Buildings:**
+  - Barn: Resource storage
+  - Bank: Trading center
+  - Animal enclosures
+  - Farmhouse (purchasable upgrade)
+- **Farm Layout:**
+  - Custom road system
+  - Decorative plants
+  - Landscaping options
+
+### 🌍 Environment
+- **Dynamic World:**
+  - Chunk-based terrain system
+  - Day/night cycle
+  - Atmospheric cloud system
+- **Decorative Elements:**
+  - Trees
+  - Grass patches
+  - Various flower types
+  - Flowering bushes
+
+### 🎯 Controls & Interaction
+- **Navigation:**
+  - Full 3D camera system
+  - Proximity-based interaction system
+- **Interaction Zones:**
+  - Animal care areas
+  - Building access points
+  - Storage management
+- **Menu System:**
+  - Resource management
+  - Trading interface
+  - Animal care options
+
+## 🎯 Game Objectives
+1. Build and expand your farm
+2. Manage animal welfare
+3. Optimize production cycles
+4. Generate profit through trading
+5. Upgrade facilities
+6. Create an efficient farm layout
+
+## 💡 Tips for Success
+1. Keep your animals well-fed for continuous production
+2. Monitor hunger levels regularly
+3. Collect products as soon as they're ready
+4. Use the barn for efficient storage
+5. Plan your farm layout for easy access
+6. Balance your investments between animals and infrastructure
+
+## 🔄 Game Loop
+1. Feed and care for animals
+2. Monitor production timers
+3. Collect animal products
+4. Store or sell products
+5. Purchase upgrades and expansions
+6. Repeat and optimize
+
+## 🎮 Getting Started
+1. Start with chickens - they're the most affordable
+2. Maintain a good food supply
+3. Establish a regular feeding routine
+4. Save up for bigger animals
+5. Expand gradually and sustainably
+
+Enjoy building and managing your own virtual farm! 🚜🌾 
+
+# 👉 How to build and run the game?
+
+# 1. Choose your platform (available on Windows, MacOS and Linux) and follow the instructions below:
 
 # VSCode Users (all platforms)
 *Note* You must have a compiler toolchain installed in addition to vscode.
 
-* Download the quickstart
-* Rename the folder to your game name
+* Download the game
 * Open the folder in VSCode
 * Run the build task ( CTRL+SHIFT+B or F5 )
 * You are good to go
@@ -26,7 +152,6 @@ There are two compiler toolchains available for windows, MinGW-W64 (a free compi
 * Double click the `build-MinGW-W64.bat` file
 * CD into the folder in your terminal
 * run `make`
-* You are good to go
 
 ### Note on MinGW-64 versions
 Make sure you have a modern version of MinGW-W64 (not mingw).
@@ -39,73 +164,27 @@ Make sure you have added the path
 `C:\raylib\w64devkit\bin`
 
 To your path environment variable so that the compiler that came with raylib can be found.
-
 DO NOT INSTALL ANOTHER MinGW-W64 from another source such as msys2, you don't need it.
 
 ## Microsoft Visual Studio
 * Run `build-VisualStudio2022.bat`
 * double click the `.sln` file that is generated
-* develop your game
-* you are good to go
 
-# Linux Users
+
+# Linux
 * CD into the build folder
 * run `./premake5 gmake2`
 * CD back to the root
 * run `make`
 * you are good to go
 
-# MacOS Users
+# MacOS
 * CD into the build folder
 * run `./premake5.osx gmake2`
 * CD back to the root
 * run `make`
 * you are good to go
 
-# Output files
-The built code will be in the bin dir
+# 2. Run the game
+* The executable is in `bin/Debug` folder with `farming-simulator` name 
 
-# Working directories and the resources folder
-The example uses a utility function from `path_utils.h` that will find the resources dir and set it as the current working directory. This is very useful when starting out. If you wish to manage your own working directory you can simply remove the call to the function and the header.
-
-# Changing to C++
-Simply rename `src/main.c` to `src/main.cpp` and re-run the steps above and do a clean build.
-
-# Using your own code
-Simply remove `src/main.c` and replace it with your code, and re-run the steps above and do a clean build.
-
-# Building for other OpenGL targets
-If you need to build for a different OpenGL version than the default (OpenGL 3.3) you can specify an OpenGL version in your premake command line. Just modify the bat file or add the following to your command line
-
-## For OpenGL 1.1
-`--graphics=opengl11`
-
-## For OpenGL 2.1
-`--graphics=opengl21`
-
-## For OpenGL 4.3
-`--graphics=opengl43`
-
-## For OpenGLES 2.0
-`--graphics=opengles2`
-
-## For OpenGLES 3.0
-`--graphics=opengles3`
-
-# License
-Copyright (c) 2020-2025 Jeffery Myers
-
-This software is provided "as-is", without any express or implied warranty. In no event 
-will the authors be held liable for any damages arising from the use of this software.
-
-Permission is granted to anyone to use this software for any purpose, including commercial 
-applications, and to alter it and redistribute it freely, subject to the following restrictions:
-
-  1. The origin of this software must not be misrepresented; you must not claim that you 
-  wrote the original software. If you use this software in a product, an acknowledgment 
-  in the product documentation would be appreciated but is not required.
-
-  2. Altered source versions must be plainly marked as such, and must not be misrepresented
-  as being the original software.
-
-  3. This notice may not be removed or altered from any source distribution.
