@@ -3,7 +3,7 @@ A charming 3D farming simulation game where you manage animals to build your dre
 
 ## 🕹️ Demo below
 No time or can't run the game? No problem; just watch the demo below to see what are you missing
-https://github.com/user-attachments/assets/10c60569-b135-4448-8348-90af9c03862f
+[![Watch the video](https://img.youtube.com/vi/s9buanXG8nQ/0.jpg)](https://www.youtube.com/watch?v=s9buanXG8nQ)
 
 ## 🎮 Game Features
 
