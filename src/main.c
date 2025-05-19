@@ -2577,7 +2577,7 @@ void DrawHumanStartMenu(Human *h) {
         DrawRectangle(0, 0, screenWidth, screenHeight, Fade(BLACK, 0.85f));
 
         // Welcome Text
-        const char* titleText = "Welcome to Grandpa's Farm here in Țǎrǎnesti!";
+        const char* titleText = "Welcome to Grandpa's Farm!";
         int titleFontSize = 50; // Larger font for title
         int titleTextWidth = MeasureText(titleText, titleFontSize);
         DrawText(titleText, screenWidth/2 - titleTextWidth/2, screenHeight/2 - 150, titleFontSize, WHITE);
